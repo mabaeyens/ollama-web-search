@@ -709,7 +709,6 @@
           if (!line.startsWith('data: ')) continue;
           let event;
           try { event = JSON.parse(line.slice(6)); } catch { continue; }
-          if (event.type !== 'token') console.log('[SSE]', event.type, event);
           handleEvent(event);
         }
       }
@@ -718,9 +717,6 @@
       removeThinking();
       addStatusChip('error-msg', `❌ ${escapeHtml(err.message)}`);
     } finally {
-      if (assistantBubble || thinkingEl) {
-        console.warn('[SSE] stream closed without done/error event');
-      }
       removeThinking();  // clean up if stream ended without a done/error event
       setStreaming(false);
     }
