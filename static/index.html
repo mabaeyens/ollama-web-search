@@ -798,7 +798,7 @@
               ? `Found ${event.count} result${event.count !== 1 ? 's' : ''}`
               : 'No results';
             chip.innerHTML =
-              `${icon} ${label} for <strong>${escapeHtml(event.query)}</strong> ▾`;
+              `${icon} ${label} for <strong>${escapeHtml(event.query)}</strong> ▴`;
 
             if (event.results && event.results.length > 0) {
               chip.classList.add('clickable');
@@ -815,7 +815,11 @@
                 a.title = r.url;
                 sourcesList.appendChild(a);
               });
+              sourcesList.classList.add('open');  // expanded by default
               wrapper.appendChild(sourcesList);
+
+              chip.innerHTML =
+                `${icon} ${label} for <strong>${escapeHtml(event.query)}</strong> ▴`;
 
               chip.addEventListener('click', () => {
                 sourcesList.classList.toggle('open');
