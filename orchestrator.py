@@ -59,6 +59,7 @@ class ChatOrchestrator:
                     yield {"type": "warning", "message": att["warning"]}
 
         # Index RAG attachments (PDFs and large text/HTML)
+        rag_indexed_this_turn = False
         if attachments:
             for att in attachments:
                 if att["type"] == "rag" and att["content"]:
@@ -66,6 +67,7 @@ class ChatOrchestrator:
                     try:
                         n_chunks = self.rag_engine.index(att["name"], att["content"])
                         yield {"type": "rag_done", "name": att["name"], "chunks": n_chunks}
+                        rag_indexed_this_turn = True
                         # Warn if approaching memory limits
                         if self.rag_engine.chunk_count > RAG_MAX_CHUNKS:
                             yield {
@@ -79,11 +81,17 @@ class ChatOrchestrator:
                         yield {"type": "error", "message": f"Failed to index '{att['name']}': {e}"}
                         return
 
-        # Auto-retrieve RAG context if index is non-empty
+        # Auto-retrieve RAG context if index is non-empty.
+        # When files were just indexed this turn, bypass the score threshold — the user's
+        # message is likely a meta-instruction ("summarize", "translate") that won't embed
+        # close to document content, so threshold filtering would drop all chunks.
         rag_chunks = []
         if self.rag_engine.chunk_count > 0:
             try:
-                rag_chunks = self.rag_engine.query(user_message)
+                if rag_indexed_this_turn:
+                    rag_chunks = self.rag_engine.query(user_message, score_threshold=float('-inf'))
+                else:
+                    rag_chunks = self.rag_engine.query(user_message)
             except Exception as e:
                 logger.warning(f"RAG query failed: {e}")
 

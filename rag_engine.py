@@ -102,11 +102,12 @@ class RagEngine:
         logger.info(f"Indexed '{name}': {total} chunks, collection total: {self.chunk_count}")
         return total
 
-    def query(self, question: str) -> List[Dict]:
+    def query(self, question: str, score_threshold: float = RAG_SCORE_THRESHOLD) -> List[Dict]:
         """
         Retrieve and rerank chunks relevant to the question.
         Returns list of {"text", "source", "score"} sorted by descending score.
-        Chunks with CrossEncoder score <= RAG_SCORE_THRESHOLD are dropped.
+        Chunks with CrossEncoder score <= score_threshold are dropped.
+        Pass score_threshold=float('-inf') to return top-K regardless of score.
         """
         if self.chunk_count == 0:
             return []
@@ -134,7 +135,7 @@ class RagEngine:
         return [
             {"text": doc, "source": meta["source"], "score": float(score)}
             for doc, meta, score in ranked[:RAG_RERANK_TOP_K]
-            if score > RAG_SCORE_THRESHOLD
+            if score > score_threshold
         ]
 
     def remove(self, name: str) -> None:
