@@ -16,7 +16,7 @@ To build a **local, private AI assistant** running on macOS that:
 | **Runtime** | Ollama (v0.20.2+) | Native tool calling support, local execution, easy model management. |
 | **Language** | Python 3.12+ | 3.9 is EOL (April 2026); 3.12 offers better performance and syntax. |
 | **Package Manager** | `uv` | Extremely fast dependency resolution and virtual environment management. |
-| **Search Engine** | Hybrid (Ollama Native + DuckDuckGo) | Ollama native for integration; DuckDuckGo (`duckduckgo-search`) as free, keyless fallback. |
+| **Search Engine** | Hybrid (Ollama Native + DuckDuckGo) | Ollama native for integration; DuckDuckGo (`ddgs`) as free, keyless fallback. |
 | **UI** | CLI (Rich Library) | Lightweight, supports markdown formatting, toggleable debug info. |
 | **Storage** | Local FS + GitHub + Proton Drive | Secure, version-controlled, end-to-end encrypted backup. |
 
@@ -47,7 +47,7 @@ The system follows a **ReAct (Reasoning + Acting)** loop:
 
 ### B. Search Fallback Strategy
 - **Primary**: Ollama's native `web_search` API (if available in the specific Ollama version).
-- **Secondary**: `duckduckgo-search` Python library (free, no API key, robust).
+- **Secondary**: `ddgs` Python library (free, no API key, robust).
 - **Error Handling**: If both fail, the model is instructed to inform the user and fall back to internal knowledge.
 
 ### C. Transparency (Verbose Mode)

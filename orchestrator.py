@@ -6,7 +6,7 @@ from typing import List, Dict, Optional
 import ollama
 from config import MODEL_NAME, MAX_RETRIES, MAX_TOOL_STEPS, VERBOSE_DEFAULT
 from tools import TOOLS
-from prompts import SYSTEM_PROMPT, SEARCH_RESULT_TEMPLATE
+from prompts import build_system_prompt, SEARCH_RESULT_TEMPLATE
 from search_engine import SearchEngine
 from formatter import (
     console, print_header, print_search_status, print_search_results,
@@ -33,7 +33,7 @@ class ChatOrchestrator:
         if not self.system_prompt_added:
             self.conversation_history.append({
                 "role": "system",
-                "content": SYSTEM_PROMPT
+                "content": build_system_prompt()
             })
             self.system_prompt_added = True
     
@@ -56,8 +56,9 @@ class ChatOrchestrator:
         # Outer loop: one iteration per tool call step; exits on final answer or step limit
         for step in range(MAX_TOOL_STEPS):
             response = self._call_model_with_retry(self.conversation_history, tools=TOOLS)
+            tool_calls = response.message.tool_calls
 
-            if not (hasattr(response, 'tool_calls') and response.tool_calls):
+            if not tool_calls:
                 # No tool call — this is the final answer
                 final_answer = response.message.content
                 self.conversation_history.append({"role": "assistant", "content": final_answer})
@@ -69,7 +70,7 @@ class ChatOrchestrator:
                 return final_answer
 
             # Model requested a tool call
-            tool_call = response.tool_calls[0]
+            tool_call = tool_calls[0]
             self.conversation_history.append(response.message)
 
             if self.verbose:

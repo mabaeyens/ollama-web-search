@@ -1,6 +1,15 @@
 """System prompts and templates."""
 
-SYSTEM_PROMPT = """You are a helpful AI assistant with access to real-time web search.
+from datetime import date
+
+def build_system_prompt() -> str:
+    today = date.today().strftime("%B %d, %Y")
+    return f"""You are a helpful AI assistant with access to real-time web search.
+
+TODAY'S DATE: {today}
+
+Use this date to determine whether events are in the past or future. If an event would have
+occurred before today, treat it as past and search for its result rather than saying it hasn't happened.
 
 YOUR CAPABILITIES:
 - You can search the web using the `web_search` tool
