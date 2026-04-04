@@ -10,6 +10,12 @@ from typing import List
 
 import uvicorn
 from fastapi import FastAPI, Form, UploadFile, File
+
+# Silence noisy third-party loggers
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
+logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -87,9 +93,20 @@ async def chat(
         threading.Thread(target=produce, daemon=True).start()
 
         while True:
-            event = await queue.get()
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=5.0)
+            except asyncio.TimeoutError:
+                # Send a real data event so the browser's ReadableStream reader
+                # wakes up — SSE comment pings (ping=N) are invisible to fetch()
+                # streams in some browsers and the connection silently drops.
+                yield {"data": json.dumps({"type": "heartbeat"})}
+                continue
             if event is None:
                 break
+            # Strip large fields the browser doesn't use
+            if event.get("type") == "search_done":
+                event = {k: v for k, v in event.items() if k != "results"}
+            logger.debug("SSE → %s", event.get("type"))
             yield {"data": json.dumps(event)}
 
     return EventSourceResponse(event_stream())
@@ -128,4 +145,4 @@ async def status():
 
 
 if __name__ == "__main__":
-    uvicorn.run("server:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("server:app", host="127.0.0.1", port=8000)

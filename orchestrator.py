@@ -119,13 +119,24 @@ class ChatOrchestrator:
             # Retry loop — only retries if no tokens have been yielded yet
             for attempt in range(1, MAX_RETRIES + 1):
                 try:
+                    accumulated_tool_calls = None
                     for chunk in self._call_ollama(self.conversation_history, tools=TOOLS):
+                        # Accumulate tool calls from any chunk — Gemma4 may emit them
+                        # before the final done=True chunk, not in it.
+                        if chunk.message.tool_calls:
+                            accumulated_tool_calls = chunk.message.tool_calls
+                            logger.info("chunk HAS tool_calls: done=%s tool_calls=%s", chunk.done, chunk.message.tool_calls)
                         token = chunk.message.content or ""
                         if token:
                             yield {"type": "token", "content": token}
                             full_content += token
                         if chunk.done:
                             final_message = chunk.message
+                            # Preserve tool calls if the done chunk doesn't have them
+                            if not final_message.tool_calls and accumulated_tool_calls:
+                                final_message = final_message.model_copy(
+                                    update={"tool_calls": accumulated_tool_calls}
+                                )
                     break
                 except Exception as e:
                     if full_content:
@@ -136,6 +147,14 @@ class ChatOrchestrator:
                         yield {"type": "error", "message": str(e)}
                         return
                     logger.warning(f"Ollama API error (attempt {attempt}/{MAX_RETRIES}): {e}")
+
+            if final_message:
+                logger.info(
+                    "Ollama response — content_len=%d tool_calls=%s thinking_len=%d",
+                    len(final_message.content or ""),
+                    bool(final_message.tool_calls),
+                    len(final_message.thinking or ""),
+                )
 
             tool_calls = final_message.tool_calls if final_message else None
 
