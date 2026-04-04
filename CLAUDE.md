@@ -14,6 +14,10 @@ uv venv --python 3.12
 source .venv/bin/activate
 uv sync
 
+# Pull required Ollama models
+ollama pull gemma4:26b
+ollama pull nomic-embed-text   # used for RAG embeddings
+
 # Run the CLI
 python main.py
 

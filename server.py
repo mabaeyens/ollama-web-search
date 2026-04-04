@@ -101,6 +101,17 @@ async def reset():
     return {"status": "ok"}
 
 
+@app.get("/rag/documents")
+async def rag_list():
+    return {"documents": orchestrator.rag_engine.list_documents()}
+
+
+@app.delete("/rag/documents/{name:path}")
+async def rag_remove(name: str):
+    orchestrator.rag_engine.remove(name)
+    return {"documents": orchestrator.rag_engine.list_documents()}
+
+
 @app.post("/verbose")
 async def set_verbose(request: VerboseRequest):
     orchestrator.verbose = request.enabled
