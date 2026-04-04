@@ -4,11 +4,11 @@ A local AI assistant powered by **Gemma 4:26b** and **Ollama** with autonomous w
 
 ## Features
 
-- **Autonomous Search**: Model searches the web and fetches full page content when snippets aren't enough
+- **Autonomous Search**: Model searches the web and fetches full page content when snippets aren't enough — sources are shown as clickable links
 - **Streaming responses**: Tokens buffered and rendered as formatted markdown
 - **Two interfaces**: Rich CLI and local web UI (FastAPI + SSE)
-- **File attachments**: PDFs (RAG), HTML, images (multimodal), text/code files
-- **RAG**: Large documents chunked, embedded with `nomic-embed-text`, reranked with CrossEncoder — retrieved automatically on every turn
+- **File attachments**: PDFs (RAG), HTML, images (multimodal), text/code files — tested with books up to 34 MB
+- **RAG**: Large documents chunked, embedded with `nomic-embed-text`, reranked with CrossEncoder — retrieved automatically on every turn, with hallucination guard for meta-queries (summarize, translate)
 - **Private**: Runs entirely on your local machine — no cloud APIs, no API keys
 
 ## Prerequisites
@@ -61,8 +61,9 @@ python server.py
 
 - Streaming responses with live markdown rendering
 - 📎 file attachment button — PDF, HTML, images, text/code
+- Search chips expand to show clickable source links; fetch chips link directly to the fetched page
 - Green Documents panel showing RAG-indexed files with per-doc remove
-- Search status chips, indexing chips, warning chips
+- Status bar showing current operation (Thinking / Searching / Reading / Indexing)
 - Verbose toggle and conversation reset in the header
 - Enter to send, Shift+Enter for newline
 
@@ -80,12 +81,14 @@ RAG documents persist in the session index across turns — no need to re-attach
 
 ## Testing
 
-All model and search calls are mocked — no Ollama instance needed to run tests.
+All model, search, and fetch calls are mocked — no Ollama instance needed to run tests.
 
 ```bash
-uv run pytest                                              # all tests
+uv run pytest                                              # all tests (10 tests)
 uv run pytest tests/test_queries.py::test_toggle_verbose  # single test
 ```
+
+Tests cover: search trigger behaviour, `fetch_url` dispatch, Gemma4 intermediate-chunk tool calls (`accumulated_tool_calls`), RAG threshold bypass for same-turn attachments, verbose toggle, conversation reset.
 
 ## Configuration
 

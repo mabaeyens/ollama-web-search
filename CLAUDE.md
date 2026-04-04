@@ -66,7 +66,9 @@ static/index.html — single-page web UI (vanilla HTML/CSS/JS + marked.js)
 | `thinking` | — | Model is processing |
 | `token` | `content` | Answer token (buffered by CLI, streamed by web) |
 | `search_start` | `query` | Web search beginning |
-| `search_done` | `query, count, results` | Search complete |
+| `search_done` | `query, count, results` | Search complete; `results` carries `{title, url}` per result (snippet stripped before SSE) |
+| `fetch_start` | `url` | Page fetch beginning |
+| `fetch_done` | `url, chars` | Fetch complete; `chars` is length of text returned |
 | `rag_indexing` | `name` | Document being indexed into RAG |
 | `rag_done` | `name, chunks` | Indexing complete |
 | `warning` | `message` | Non-fatal issue (scanned PDF, chunk limit) |
@@ -101,7 +103,7 @@ All tunables in `config.py` (not git-ignored, no `.env`):
 
 Mock pattern: `patch.object(orchestrator, '_call_ollama', return_value=iter([chunk]))` where each chunk is a `MagicMock` with `.message.content`, `.message.tool_calls`, `.done`.
 
-Tests cover: search trigger behaviour, search_done event payload, verbose toggle, conversation reset.
+Tests cover: search trigger behaviour, search_done event payload, `fetch_url` dispatch, Gemma4 intermediate-chunk tool calls (`accumulated_tool_calls`), RAG threshold bypass for same-turn attachments, verbose toggle, conversation reset.
 
 ## Constraints
 
