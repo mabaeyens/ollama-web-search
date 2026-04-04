@@ -13,14 +13,15 @@ def _tool_call_response(query="test"):
     tool_call.function.name = "web_search"
     tool_call.function.arguments = {"query": query, "num_results": 5}
     response = MagicMock()
-    response.tool_calls = [tool_call]
+    response.message.tool_calls = [tool_call]
+    response.message.content = ""
     return response
 
 
 def _final_response(content="Answer."):
     """Mock model response with a final answer and no tool calls."""
     response = MagicMock()
-    response.tool_calls = None
+    response.message.tool_calls = None
     response.message.content = content
     return response
 

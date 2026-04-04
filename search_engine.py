@@ -14,11 +14,11 @@ except ImportError:
     logger.warning("Ollama native web_search not available. Using DuckDuckGo fallback.")
 
 try:
-    from duckduckgo_search import DDGS
+    from ddgs import DDGS
     DDGS_AVAILABLE = True
 except ImportError:
     DDGS_AVAILABLE = False
-    logger.error("duckduckgo-search not installed. Please run: uv add duckduckgo-search")
+    logger.error("ddgs not installed. Please run: uv add ddgs")
 
 
 class SearchEngine:
@@ -29,7 +29,7 @@ class SearchEngine:
         self.ddgs = DDGS() if DDGS_AVAILABLE else None
         
         if not self.use_native and not self.ddgs:
-            raise RuntimeError("No search engine available. Install duckduckgo-search.")
+            raise RuntimeError("No search engine available. Install ddgs.")
     
     def search(self, query: str, max_results: int = MAX_SEARCH_RESULTS) -> List[Dict]:
         """
