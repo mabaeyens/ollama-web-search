@@ -3,6 +3,7 @@
 
 import sys
 import logging
+import readline  # noqa: F401 — enables arrow keys and history in input()
 from config import VERBOSE_DEFAULT
 from orchestrator import ChatOrchestrator
 from formatter import print_header, print_error
@@ -74,7 +75,6 @@ Available commands:
             
             # Process user message
             orchestrator.chat(user_input)
-            print()  # Empty line for readability
             
         except KeyboardInterrupt:
             print("\nGoodbye!")

@@ -10,7 +10,7 @@ from prompts import build_system_prompt, SEARCH_RESULT_TEMPLATE
 from search_engine import SearchEngine
 from formatter import (
     console, print_header, print_search_status, print_search_results,
-    print_answer, print_error, print_verbose_header
+    print_answer, print_error, print_rule
 )
 
 logger = logging.getLogger(__name__)
@@ -63,34 +63,27 @@ class ChatOrchestrator:
                 final_answer = response.message.content
                 self.conversation_history.append({"role": "assistant", "content": final_answer})
 
-                if self.verbose:
-                    console.print("\n[dim]--- FINAL ANSWER ---[/dim]\n")
-
                 print_answer(final_answer)
+                print_rule()
                 return final_answer
 
             # Model requested a tool call
             tool_call = tool_calls[0]
             self.conversation_history.append(response.message)
 
-            if self.verbose:
-                print_verbose_header()
-
             if tool_call.function.name == "web_search":
                 query = tool_call.function.arguments.get("query", "")
                 num_results = tool_call.function.arguments.get("num_results", 5)
 
-                if self.verbose:
-                    print_search_status(query, "Searching...")
+                with console.status(f"[dim]Searching: {query}[/dim]", spinner="dots"):
+                    results = self.search_engine.search(query, max_results=num_results)
 
-                results = self.search_engine.search(query, max_results=num_results)
-
-                if self.verbose:
-                    if results:
-                        print_search_status(query, f"Found {len(results)} results")
+                if results:
+                    print_search_status(query, f"Found {len(results)} results")
+                    if self.verbose:
                         print_search_results(results)
-                    else:
-                        print_search_status(query, "No results found")
+                else:
+                    print_search_status(query, "No results found")
 
                 search_summary = self.search_engine.get_search_summary(results)
                 search_content = SEARCH_RESULT_TEMPLATE.format(
@@ -128,11 +121,12 @@ class ChatOrchestrator:
 
     def _call_model(self, messages: List[Dict], tools: Optional[List] = None):
         """Call the Ollama model (single attempt)."""
-        return ollama.chat(
-            model=self.model,
-            messages=messages,
-            tools=tools
-        )
+        with console.status("[dim]Thinking…[/dim]", spinner="dots"):
+            return ollama.chat(
+                model=self.model,
+                messages=messages,
+                tools=tools
+            )
     
     def toggle_verbose(self):
         """Toggle verbose mode."""
@@ -144,5 +138,6 @@ class ChatOrchestrator:
     def reset_conversation(self):
         """Reset conversation history."""
         self.conversation_history = []
+        self.system_prompt_added = False
         self._add_system_prompt()
         print("Conversation reset.")
