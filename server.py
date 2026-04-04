@@ -32,6 +32,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 orchestrator: ChatOrchestrator = None
+cancel_event = threading.Event()
 
 
 @asynccontextmanager
@@ -55,12 +56,21 @@ async def index():
     return FileResponse("static/index.html")
 
 
+@app.post("/cancel")
+async def cancel():
+    cancel_event.set()
+    return {"status": "cancelled"}
+
+
 @app.post("/chat")
 async def chat(
     message: str = Form(...),
     files: List[UploadFile] = File(default=[]),
 ):
     """SSE endpoint — streams typed events from stream_chat() to the browser."""
+    cancel_event.clear()
+    history_snapshot_len = len(orchestrator.conversation_history)
+
     # Read uploaded files before entering the background thread
     attachments = []
     for upload in files:
@@ -82,11 +92,14 @@ async def chat(
         def produce():
             try:
                 for event in orchestrator.stream_chat(message, attachments=attachments or None):
+                    if cancel_event.is_set():
+                        break
                     loop.call_soon_threadsafe(queue.put_nowait, event)
             except Exception as e:
-                loop.call_soon_threadsafe(
-                    queue.put_nowait, {"type": "error", "message": str(e)}
-                )
+                if not cancel_event.is_set():
+                    loop.call_soon_threadsafe(
+                        queue.put_nowait, {"type": "error", "message": str(e)}
+                    )
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, None)
 
@@ -102,6 +115,9 @@ async def chat(
                 yield {"data": json.dumps({"type": "heartbeat"})}
                 continue
             if event is None:
+                # Produce thread finished — rollback history if cancelled
+                if cancel_event.is_set():
+                    orchestrator.conversation_history = orchestrator.conversation_history[:history_snapshot_len]
                 break
             # Strip snippets — browser only needs title + url for the sources list
             if event.get("type") == "search_done":

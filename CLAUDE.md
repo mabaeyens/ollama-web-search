@@ -97,6 +97,18 @@ All tunables in `config.py` (not git-ignored, no `.env`):
 - `RERANK_MODEL` — `cross-encoder/ms-marco-MiniLM-L-6-v2` (sentence-transformers)
 - `RAG_CHUNK_SIZE`, `RAG_CHUNK_OVERLAP`, `RAG_RETRIEVE_K`, `RAG_RERANK_TOP_K`, `RAG_SCORE_THRESHOLD`, `RAG_MAX_CHUNKS`
 
+## Cancel / Stop button
+
+**How it works (single-user app):**
+- `cancel_event = threading.Event()` is module-level in `server.py`
+- Each `/chat` request clears it; `POST /cancel` sets it
+- `produce()` thread checks `cancel_event.is_set()` before each `queue.put_nowait` — breaks out immediately when set
+- `event_stream()` receives the `None` sentinel from produce, checks cancel_event, and truncates `orchestrator.conversation_history` back to the length it was before the turn started — leaving history clean as if the turn never happened
+- Client JS calls `POST /cancel` first (awaits), then `reader.cancel()` to close the SSE stream
+- Stop button replaces Send button during streaming; swaps back on completion or cancel
+
+**Key constraint:** History rollback relies on `event_stream()` receiving the `None` sentinel from `produce()` before the SSE connection closes. This works because the client awaits `POST /cancel` (which causes `produce()` to stop quickly) before calling `reader.cancel()`. If the connection drops before `None` arrives (network issue, browser crash), history is left with the partial user message — not catastrophic; user can hit Reset.
+
 ## Tests
 
 `tests/test_queries.py` — all model and search calls mocked via `unittest.mock`. No Ollama instance needed.
@@ -104,6 +116,8 @@ All tunables in `config.py` (not git-ignored, no `.env`):
 Mock pattern: `patch.object(orchestrator, '_call_ollama', return_value=iter([chunk]))` where each chunk is a `MagicMock` with `.message.content`, `.message.tool_calls`, `.done`.
 
 Tests cover: search trigger behaviour, search_done event payload, `fetch_url` dispatch, Gemma4 intermediate-chunk tool calls (`accumulated_tool_calls`), RAG threshold bypass for same-turn attachments, verbose toggle, conversation reset.
+
+`tests/test_cancel.py` — uses FastAPI `TestClient`; mocks `orchestrator.stream_chat` directly (no `_call_ollama` mock needed). Tests cover: cancel endpoint, cancel cleared on new chat, events dropped after cancel, history rollback on cancel.
 
 ## Constraints
 
