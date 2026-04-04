@@ -1,0 +1,32 @@
+# macOS
+.DS_Store
+.AppleDouble
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# Node / JavaScript
+node_modules/
+.npm
+dist/
+build/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Datos sensibles
+*.env
+.env.local
+secrets.*
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
