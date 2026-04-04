@@ -5,158 +5,130 @@ To build a **local, private AI assistant** running on macOS that:
 - Uses **Gemma 4:26b** (via Ollama) as the core reasoning engine.
 - Possesses **autonomous web search capabilities** to answer questions about events after the model's training cutoff (April 2024).
 - Decides **when** to search based on query context (ReAct pattern) rather than relying on manual triggers.
-- Provides a **clean CLI interface** with toggleable verbosity for transparency.
-- Runs entirely locally with **zero-cost** search (DuckDuckGo fallback) and no external API keys.
+- Provides both a **CLI interface** and a **local web UI** with streaming markdown responses.
+- Runs entirely locally with **zero-cost** search (DuckDuckGo) and no external API keys.
 
 ## 2. Technology Stack & Decisions
 
 | Component | Choice | Reasoning |
 |-----------|--------|-----------|
-| **LLM** | `gemma4:26b` | High reasoning capability, MoE architecture, available via Ollama. |
+| **LLM** | `gemma4:26b` | High reasoning capability, MoE architecture (4b active params), available via Ollama. |
 | **Runtime** | Ollama (v0.20.2+) | Native tool calling support, local execution, easy model management. |
 | **Language** | Python 3.12+ | 3.9 is EOL (April 2026); 3.12 offers better performance and syntax. |
-| **Package Manager** | `uv` | Extremely fast dependency resolution and virtual environment management. |
-| **Search Engine** | Hybrid (Ollama Native + DuckDuckGo) | Ollama native for integration; DuckDuckGo (`ddgs`) as free, keyless fallback. |
-| **UI** | CLI (Rich Library) | Lightweight, supports markdown formatting, toggleable debug info. |
+| **Package Manager** | `uv` | Fast dependency resolution, reproducible lockfiles. |
+| **Search Engine** | DuckDuckGo (`ddgs`) | Free, no API key. Ollama native search disabled (requires paid subscription). |
+| **CLI UI** | Rich library | Spinners, formatted output, toggleable verbosity. |
+| **Web UI** | FastAPI + SSE + vanilla HTML/JS | No build step, full control, streaming via SSE, markdown via marked.js. |
 | **Storage** | Local FS + GitHub + Proton Drive | Secure, version-controlled, end-to-end encrypted backup. |
 
 ## 3. Architecture Overview
 
-The system follows a **ReAct (Reasoning + Acting)** loop:
+The system follows a **ReAct (Reasoning + Acting)** loop built on an event-based streaming architecture:
 
-1. **User Input** → CLI receives query.
-2. **Orchestrator** → Sends query to Gemma 4 with `web_search` tool definition.
-3. **Model Decision**:
-   - *If search needed*: Model outputs tool call `web_search(query="...")`.
-   - *If not needed*: Model outputs direct answer.
-4. **Execution**:
-   - Orchestrator intercepts tool call.
-   - Executes search (Ollama native → DuckDuckGo fallback).
-   - Formats results.
-5. **Feedback Loop**: Search results injected back into conversation history.
-6. **Final Answer**: Model synthesizes results and outputs final response.
+```
+main.py (_render_stream)     server.py (/chat SSE endpoint)
+          └────────────────────────────┘
+                      │  consumes events
+         ChatOrchestrator.stream_chat()
+                      │  yields events
+         ┌────────────┴────────────┐
+    _call_ollama()          SearchEngine
+  ollama.chat(stream=True)   ddgs.text()
+```
+
+**Events yielded by `stream_chat()`:**
+1. `thinking` — model is processing; consumers show spinner
+2. `token` — answer token; consumers append and render incrementally
+3. `search_start` — search beginning; consumers show search indicator
+4. `search_done` — results ready; consumers update indicator with count
+5. `done` — turn complete with full content
+6. `error` — error with message
+
+**System prompt** is built dynamically (`build_system_prompt()`) and includes today's date, so the model correctly identifies past events as searchable.
 
 ## 4. Key Design Decisions
 
 ### A. Autonomous Search Triggers
-- **Heuristic + Model Judgment**: The system relies on the **System Prompt** to instruct Gemma 4 to search for:
-  - Events after April 2024.
-  - Keywords: "latest", "news", "today", "current", "2025", "2026".
-  - Uncertain facts.
-- **No Hardcoded Rules**: The model decides dynamically, allowing for nuanced handling of edge cases.
+- Model decides dynamically based on system prompt rules (date-aware) and its own judgment.
+- No hardcoded heuristics — the model handles edge cases.
 
-### B. Search Fallback Strategy
-- **Primary**: Ollama's native `web_search` API (if available in the specific Ollama version).
-- **Secondary**: `ddgs` Python library (free, no API key, robust).
-- **Error Handling**: If both fail, the model is instructed to inform the user and fall back to internal knowledge.
+### B. Search Strategy
+- **Active**: `ddgs` Python library (free, no API key).
+- **Disabled**: Ollama native `web_search` requires a paid Ollama subscription — `USE_NATIVE_SEARCH = False`.
+- **Fallback**: If search fails, model is instructed to inform the user and answer from internal knowledge.
 
 ### C. Transparency (Verbose Mode)
-- **Toggleable**: Users can switch between:
-  - *Quiet*: Only final answer (clean for copy-pasting).
-  - *Verbose*: Shows search queries, result tables, and intermediate steps (for debugging/verification).
-- **Implementation**: Controlled via `/toggle`, `/verbose`, `/quiet` CLI commands.
+- CLI: `/verbose`, `/quiet`, `/toggle` commands; spinner always visible.
+- Web: checkbox in header; search chip always visible (result count shown regardless).
 
-### D. Environment Management
+### D. Event-Based Architecture
+- `ChatOrchestrator` is display-agnostic: yields typed events, no I/O.
+- CLI renderer (`_render_stream` in `main.py`) handles Rich spinners and stdout.
+- Web renderer (`/chat` endpoint in `server.py`) forwards events as SSE via asyncio queue + background thread.
+- Single mockable boundary: `_call_ollama()` — tests mock this with a list of MagicMock chunks.
+
+### E. Environment Management
 - **Tool**: `uv` (not `pip`/`venv`).
-- **Workflow**: `uv python pin 3.12` → `uv venv` → `uv add ...` → `uv run ...`.
-- **Rationale**: Faster installs, reproducible lockfiles (`uv.lock`), modern standard.
+- **Workflow**: `uv venv --python 3.12` → `source .venv/bin/activate` → `uv sync`.
 
 ## 5. Current Project Status
 
-### Completed
-- **Architecture Design**: Defined and agreed upon.
-- **Code Generation**: All source files created:
-  - `main.py` (CLI Entry)
-  - `orchestrator.py` (Logic Loop)
-  - `search_engine.py` (Search Execution)
-  - `tools.py` (Tool Definitions)
-  - `prompts.py` (System Prompts)
-  - `formatter.py` (Rich UI)
-  - `config.py` (Settings)
-  - `pyproject.toml` (Dependencies)
-  - `.gitignore`
-  - `README.md` (Setup Instructions)
-  - `tests/test_queries.py` (Validation)
-- **Documentation**: Full setup guide and troubleshooting steps written.
+### Completed ✅
+- All core source files (`main.py`, `orchestrator.py`, `search_engine.py`, `tools.py`, `prompts.py`, `formatter.py`, `config.py`)
+- Event-based streaming architecture (`stream_chat()` generator)
+- CLI with streaming output, spinners, search status, verbose mode
+- Web interface: FastAPI server (`server.py`) + single-page UI (`static/index.html`)
+  - SSE streaming with live markdown rendering (marked.js)
+  - Thinking animation, search chips, verbose toggle, reset
+- 7 unit tests (all mocked, no Ollama needed)
+- Full documentation (README, CLAUDE.md, PROJECT_SUMMARY.md)
+- Git repository at `github.com/mabaeyens/ollama-web-search`
 
-### Pending Actions (User Side)
-
-#### 1. Environment Setup
-Python 3.12 is installed. Create the virtual environment and install dependencies:
-```bash
-uv venv --python 3.12
-source .venv/bin/activate
-uv sync
-```
-
-#### 2. Model Pull
-Pull the model:
-```bash
-ollama pull gemma4:26b
-```
-
-#### 3. File Creation
-Ensure all generated files are saved in the `ollama_web_search` directory.
-
-#### 4. Testing
-Run `uv run python main.py` and test with queries like:
-- `"Who wrote Hamlet?"` → Should **not** search
-- `"What's the latest news on AI in 2026?"` → Should search
-
-## 6. File Structure Reference
+## 6. File Structure
 
 ```
-ollama_web_search/
-├── main.py                 # CLI entry point
-├── orchestrator.py         # Core ReAct loop
-├── search_engine.py        # Search logic (Ollama + DDG)
-├── tools.py                # Tool schema
-├── prompts.py              # System instructions
-├── formatter.py            # Rich text output
-├── config.py               # Config constants
-├── pyproject.toml          # Project config (uv)
-├── .gitignore              # Git exclusions
-├── README.md               # User guide
+ollama-web-search/
+├── main.py                 # CLI entry point + _render_stream()
+├── server.py               # FastAPI web server + SSE /chat endpoint
+├── orchestrator.py         # ChatOrchestrator: stream_chat() generator
+├── search_engine.py        # DuckDuckGo search (ddgs)
+├── tools.py                # Ollama tool schema for web_search
+├── prompts.py              # build_system_prompt() — date-aware
+├── formatter.py            # Rich console helpers (CLI only)
+├── config.py               # All tunables
+├── pyproject.toml          # uv project config
+├── uv.lock                 # Locked dependencies
+├── .gitignore
+├── README.md
+├── CLAUDE.md
+├── PROJECT_SUMMARY.md
+├── static/
+│   └── index.html          # Web UI (vanilla HTML/CSS/JS)
 └── tests/
-    └── test_queries.py     # Test cases
+    ├── conftest.py          # sys.path injection
+    └── test_queries.py      # 7 unit tests
 ```
 
-## 7. Next Steps for Development
+## 7. Roadmap
 
-### Phase 1 — Web Interface
-Replace the CLI with a local browser UI delivering streaming responses with proper markdown rendering.
-
-**Architecture:**
-- `server.py` — FastAPI app with a `/chat` SSE endpoint that pipes the Ollama token stream to the browser, and `/static` serving for the frontend
-- `static/index.html` — Single-page chat UI in vanilla HTML/JS consuming the SSE stream; `marked.js` for incremental markdown rendering
-- `ChatOrchestrator` reused almost unchanged; streaming already implemented
-
-**Why FastAPI + SSE over alternatives:**
-- Gradio/Streamlit: faster to build but generic UI, harder to customise for file uploads later
-- React frontend: better long-term but adds a build step and npm dependency
-- FastAPI + plain HTML: no build step, full control, straightforward to extend
-
-**Effort estimate:** ~1 day
-
-### Phase 2 — File Attachments (requires web interface)
+### Phase 2 — File Attachments
 Allow attaching files to queries so the model can reason over local content.
 
-| File type | Approach |
-|-----------|----------|
-| Images | Gemma 4 is natively multimodal — pass image bytes directly to Ollama |
-| Text / code | Extract content, inject into conversation context |
-| Large PDFs | RAG: chunk → embed (`sentence-transformers`) → store (ChromaDB) → retrieve relevant sections per query |
-
-**Effort estimate:** images ~half day; text files ~half day; PDF RAG ~2 days
+| File type | Approach | Effort |
+|-----------|----------|--------|
+| Images | Gemma 4 is natively multimodal — pass image bytes to Ollama | ~half day |
+| Text / code | Extract content, inject into conversation context | ~half day |
+| Large PDFs | RAG: chunk → embed (`sentence-transformers`) → store (ChromaDB) → retrieve relevant sections | ~2 days |
 
 ## 8. Backlog / Open Decisions
 
-- **CLI: streaming vs markdown rendering** — Current CLI streams raw tokens (typewriter effect, no markdown). Once the web interface is live, revisit: either revert CLI to blocking + markdown, or implement a buffered approach that streams silently then renders with Rich Markdown. Deferred until web UI is done.
+- **CLI: streaming vs markdown rendering** — Current CLI streams raw tokens (typewriter effect, no markdown). Now that the web interface is live with proper markdown, revisit: either revert CLI to blocking + markdown, or implement a buffered approach that streams silently then renders with Rich Markdown.
 
 ## 9. Notes for Claude Code Context
 
 - Do not suggest `pip` or `venv`; always use `uv`.
 - Do not suggest cloud APIs; keep search local/free.
 - Do not change the model to anything other than `gemma4:26b` unless requested.
-- Focus on robustness: ensure error handling covers network failures and empty search results.
-- Security: remind user to keep `.env` (if added later) and `.venv` in `.gitignore`.
+- Do not set `USE_NATIVE_SEARCH = True` — Ollama native requires a paid subscription.
+- `ChatOrchestrator` must remain display-agnostic — no print/console calls in orchestrator.py.
+- Tests mock `_call_ollama`, not higher-level methods. Mock chunks need `.message.content`, `.message.tool_calls`, `.done`.

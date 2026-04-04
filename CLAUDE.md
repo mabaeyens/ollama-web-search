@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**ollama Search Tool** — a local CLI assistant that uses Gemma 4:26b via Ollama with autonomous web search. The model decides when to call the `web_search` tool based on query type.
+**ollama Search Tool** — a local AI assistant using Gemma 4:26b via Ollama with autonomous web search. Available as both a CLI tool and a local web interface. The model decides when to call the `web_search` tool based on query type (ReAct pattern).
 
 ## Commands
 
@@ -14,8 +14,11 @@ uv venv --python 3.12
 source .venv/bin/activate
 uv sync
 
-# Run the assistant
-uv run python main.py
+# Run the CLI
+python main.py
+
+# Run the web interface (open http://localhost:8000)
+python server.py
 
 # Add a dependency
 uv add <package>
@@ -32,40 +35,57 @@ Requires Ollama running locally (`http://localhost:11434` by default) with `gemm
 ## Architecture
 
 ```
-main.py (CLI loop + commands)
-  └── ChatOrchestrator (orchestrator.py)
-        ├── ollama.chat() with TOOLS → tool_calls response
-        ├── SearchEngine (search_engine.py)
-        │     ├── Ollama native web_search (primary, if available)
-        │     └── DuckDuckGo DDGS fallback
-        └── formatter.py (Rich console output)
+main.py (CLI loop + _render_stream)     server.py (FastAPI + SSE)
+         └──────────────────────────────────────┘
+                         │
+              ChatOrchestrator (orchestrator.py)
+                    │  stream_chat() → yields events
+                    ├── _call_ollama() → ollama.chat(stream=True)
+                    └── SearchEngine (search_engine.py)
+                              └── DuckDuckGo (ddgs)
 
-config.py   — model name, timeouts, display flags, OLLAMA_HOST
-tools.py    — Ollama tool schema for web_search function
-prompts.py  — SYSTEM_PROMPT (search decision rules) + result template
+config.py    — model name, timeouts, display flags, OLLAMA_HOST
+tools.py     — Ollama tool schema for web_search function
+prompts.py   — build_system_prompt() injects today's date + search rules
+formatter.py — Rich console helpers (CLI only)
+static/index.html — single-page web UI (vanilla HTML/CSS/JS + marked.js)
 ```
 
-**Tool-calling flow:** `ChatOrchestrator.chat()` runs a loop — calls the model, checks `response.tool_calls`, executes the search if requested, appends a `role: tool` message, then calls the model again for the final answer. `MAX_RETRIES` (default 2) guards against infinite loops or API errors.
+**Event-based streaming flow:** `ChatOrchestrator.stream_chat()` is a generator that yields typed events:
+- `{"type": "thinking"}` — model is processing
+- `{"type": "token", "content": "..."}` — answer token (streamed)
+- `{"type": "search_start", "query": "..."}` — search beginning
+- `{"type": "search_done", "query": "...", "count": N, "results": [...]}` — search complete
+- `{"type": "done", "content": "..."}` — turn complete, full answer
+- `{"type": "error", "message": "..."}` — error occurred
 
-**Search fallback:** `SearchEngine` tries Ollama native `web_search` first; on failure it disables native for the session and falls back to DuckDuckGo. If neither is available, it raises at init time.
+The CLI (`_render_stream` in `main.py`) and web server (`/chat` SSE endpoint in `server.py`) consume the same events differently.
+
+**Mockable boundary:** `_call_ollama()` is the single point tests mock — returns an iterable of stream chunks.
+
+**Search:** Ollama native search is disabled (`USE_NATIVE_SEARCH = False`) — it requires a paid Ollama subscription. DuckDuckGo (`ddgs`) is the active search engine.
 
 ## Configuration
 
 All tunables live in `config.py` (not git-ignored, no `.env`):
 - `MODEL_NAME` — Ollama model to use
-- `USE_NATIVE_SEARCH` — prefer Ollama native search over DuckDuckGo
-- `MAX_SEARCH_RESULTS`, `SEARCH_TIMEOUT`, `MAX_RETRIES`
+- `USE_NATIVE_SEARCH` — `False` (Ollama native requires paid subscription)
+- `MAX_SEARCH_RESULTS`, `SEARCH_TIMEOUT`, `MAX_RETRIES`, `MAX_TOOL_STEPS`
 - `VERBOSE_DEFAULT` — whether to show search details by default
+- `OLLAMA_HOST` — override via env var
 
 ## Tests
 
-`tests/test_queries.py` — all model calls and search calls are mocked via `unittest.mock`, so no Ollama instance is needed to run them. Tests cover:
-- Search trigger behaviour (historical facts vs. current events)
-- Verbose toggle and conversation reset
+`tests/test_queries.py` — all model and search calls mocked via `unittest.mock`. No Ollama instance needed.
+
+Mock pattern: `patch.object(orchestrator, '_call_ollama', return_value=iter([chunk]))` where each chunk is a `MagicMock` with `.message.content`, `.message.tool_calls`, `.done`.
+
+Tests cover: search trigger behaviour, search_done event payload, verbose toggle, conversation reset.
 
 ## Constraints
 
 - Always use `uv` for dependency management — never `pip` or `venv`.
 - Keep search local and free — no cloud APIs or API keys.
 - Do not change the model from `gemma4:26b` unless the user explicitly requests it.
+- Do not set `USE_NATIVE_SEARCH = True` — Ollama native search requires a paid subscription.
 - If `.env` is added in the future, ensure it and `.venv/` are in `.gitignore`.
