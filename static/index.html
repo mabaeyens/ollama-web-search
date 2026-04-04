@@ -673,7 +673,7 @@
         `<div class="file-chip" style="margin-bottom:6px">📎 ${escapeHtml(f.name)}</div>`
       ).join('');
     }
-    if (text) userHtml += escapeHtml(text);
+    if (text) userHtml += (filesToSend.length > 0 ? '<br>' : '') + escapeHtml(text);
     addMessage('user', userHtml);
 
     setStreaming(true, 'Thinking…');
