@@ -145,20 +145,69 @@ Allow attaching files (PDF, HTML, images) to queries so the model can reason ove
 | 4 | Web UI file input button + chip display; change `/chat` to accept multipart form data | `server.py`, `static/index.html` |
 | 5 | Context size guard — truncate + warn if extracted content exceeds threshold | `file_handler.py` or `orchestrator.py` |
 
+#### New dependencies (implemented)
+
+```
+pymupdf           # PDF text extraction (PyMuPDF / fitz) — replaces pdfplumber
+beautifulsoup4    # HTML stripping
+python-multipart  # FastAPI multipart form data
+```
+
+### Phase 3 — RAG for large PDFs
+
+#### Design decisions
+
+| Decision | Choice | Reasoning |
+|----------|--------|-----------|
+| Embeddings | `nomic-embed-text` via Ollama | Consistent with existing Ollama interface; ~274MB; coexists with gemma4:26b on 32GB |
+| Reranking | CrossEncoder (`cross-encoder/ms-marco-MiniLM-L-6-v2`) via `sentence-transformers` | No Ollama reranker available; ~100MB; meaningfully improves retrieval quality |
+| Vector store | ChromaDB `EphemeralClient()` (in-memory) | Avoids all persistence/SQLite issues from the original RAG repo |
+| Trigger | PDFs always → RAG; HTML/text > 80k chars → RAG; small text → direct inject | Consistent for PDFs regardless of size; no token-cost concern with local models |
+| Multi-document | All docs in one collection, tagged by `source` filename | User queries across all attached docs; individual docs removable |
+| Cross-turn retrieval | RAG index queried on every message when non-empty; chunks injected only if reranker score > 0 | Transparent across turns without re-attachment; irrelevant docs filtered by score threshold |
+| Memory management | Recreate `EphemeralClient()` on reset; `remove(name)` deletes chunks by source tag | Python GC doesn't free ChromaDB RAM reliably on collection delete alone |
+| Integration | New `rag_engine.py` in ollama-web-search; RAG repo used as algorithm reference only | No cross-repo dependency; RAG repo stays as standalone bulk ingestor |
+
+#### New events
+
+```
+{"type": "rag_indexing", "name": "file.pdf"}          — indexing started
+{"type": "rag_done",     "name": "file.pdf", "chunks": N}  — indexing complete
+```
+
 #### New dependencies
 
 ```
-pdfplumber      # PDF text extraction
-beautifulsoup4  # HTML stripping
+chromadb              # In-memory vector store (latest stable, not 0.5.x)
+sentence-transformers # CrossEncoder reranker only
 ```
 
-### Phase 3 — RAG for large PDFs (future)
+#### New config knobs (config.py)
 
-For documents too large to inject in full: chunk → embed (`sentence-transformers`) → store (ChromaDB) → retrieve relevant sections per query. Separate effort, not part of Phase 2.
+```
+RAG_CHUNK_SIZE      = 400   # words per chunk
+RAG_CHUNK_OVERLAP   = 40    # word overlap between chunks
+RAG_RETRIEVE_K      = 10    # initial candidates before reranking
+RAG_RERANK_TOP_K    = 4     # chunks to inject after reranking
+RAG_SCORE_THRESHOLD = 0.0   # CrossEncoder score below which chunks are dropped
+RAG_MAX_CHUNKS      = 10000 # warn user to unload documents above this
+```
+
+#### Implementation steps
+
+| Step | What | Files |
+|------|------|-------|
+| 1 | `rag_engine.py` — `index()`, `query()`, `remove()`, `clear()`, `list_documents()`, `chunk_count` | new file |
+| 2 | `file_handler.py` — PDFs return `{"type": "rag", ...}`; large text/HTML → `{"type": "rag", ...}` | `file_handler.py` |
+| 3 | `orchestrator.py` — hold `RagEngine` instance; handle `rag` attachments (index + yield events); auto-retrieve on every turn when index non-empty | `orchestrator.py` |
+| 4 | `server.py` — `GET /rag/documents`, `DELETE /rag/documents/{name}` endpoints | `server.py` |
+| 5 | Web UI — indexing chip, Documents panel with per-doc remove | `static/index.html` |
+| 6 | CLI — `/rag-list`, `/rag-remove <name>` commands; indexing spinner | `main.py` |
 
 ## 8. Backlog / Open Decisions
 
 - **CLI markdown rendering** — Resolved: CLI now buffers tokens and renders the full answer with Rich Markdown (`03c7bf1`).
+- **Show RAG chunks in web UI** — When a response uses RAG, show the source chunks (filename, page, score) that were injected so the user can verify where the answer came from. UI pattern: collapsible "Sources" section below the assistant bubble.
 
 ## 9. Notes for Claude Code Context
 

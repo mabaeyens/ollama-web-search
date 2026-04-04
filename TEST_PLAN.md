@@ -111,14 +111,57 @@ Test cases are grouped by feature area. Each case lists the action, expected res
 
 ---
 
-## 11. Phase 3 — RAG for large PDFs *(to be tested after implementation)*
+## 11. Phase 3 — RAG *(to be tested after implementation)*
+
+> **Test documents needed:**
+> - `small.pdf` — a text-based PDF under 80k chars (e.g. a 5-page article)
+> - `large.pdf` — a text-based PDF over 80k chars with specific facts in the latter half
+> - `second.pdf` — a second document on a different topic
+> - `scanned.pdf` — an image-only PDF with no text layer
+>
+> **Accuracy ground truth:** before running these tests, read `large.pdf` and write down 3 specific facts that appear only after the first ~80k characters. These are your retrieval accuracy probes.
+
+### 11a. Indexing and UI feedback
 
 | # | Action | Expected |
 |---|--------|----------|
-| 11.1 | Attach a large PDF (> 80k chars) | Instead of a truncation warning, an indexing chip appears: "Indexing document…" |
-| 11.2 | Observe indexing completion | Chip updates: "Indexed N chunks — [filename]" |
-| 11.3 | Ask a specific question answered in the latter half of the document | Model answers correctly using retrieved chunks, not just the first 80k chars |
-| 11.4 | Ask a follow-up question about the same document (no re-attachment) | RAG index is still active; model answers from retrieved chunks |
-| 11.5 | Attach a second large PDF | Previous index replaced; new document indexed |
-| 11.6 | Ask a question unrelated to the indexed document | Model answers from general knowledge or web search; RAG chunks not injected |
-| 11.7 | Click Reset | RAG index cleared along with conversation history |
+| 11.1 | Attach any PDF (small or large) | Indexing chip appears: "Indexing [filename]…" with spinner |
+| 11.2 | Wait for indexing to complete | Chip updates: "Indexed N chunks — [filename]" |
+| 11.3 | Attach a second PDF while the first is indexed | Second doc indexed and added; first doc remains in index |
+| 11.4 | Observe the Documents panel in the web UI | Both filenames listed with ✕ remove buttons |
+| 11.5 | Click ✕ on one document | That document removed from index; remaining document still listed |
+| 11.6 | Click Reset | Documents panel disappears; RAG index cleared along with conversation history |
+
+### 11b. Retrieval accuracy
+
+| # | Action | Expected |
+|---|--------|----------|
+| 11.7 | Attach `large.pdf`; ask about a fact from the **first** quarter of the document | Correct answer; model cites the right section |
+| 11.8 | Ask about a fact from the **latter half** of the document (past 80k chars) | Correct answer — proves RAG retrieves beyond the old truncation point |
+| 11.9 | Ask one of your 3 ground-truth probe questions | Answer matches the known fact exactly |
+| 11.10 | Ask a second probe question without re-attaching | Correct answer — RAG index persists across turns |
+| 11.11 | Ask a question whose answer is not in the document | Model says it cannot find that information in the document (does not hallucinate from the document) |
+| 11.12 | Ask a question entirely unrelated to any indexed document | Model answers from general knowledge; no RAG chunks injected (reranker score below threshold) |
+
+### 11c. Reranking quality
+
+| # | Action | Expected |
+|---|--------|----------|
+| 11.13 | Ask a vague question with several plausible sections in the document | Answer uses the most relevant section, not just the first retrieved chunk |
+| 11.14 | Ask the same question with reranking disabled (set `RERANK_TOP_K = 0` temporarily) | Note any difference in answer quality — confirms reranker is adding value |
+
+### 11d. Multi-document retrieval
+
+| # | Action | Expected |
+|---|--------|----------|
+| 11.15 | Index `large.pdf` and `second.pdf` (different topics); ask about topic from `large.pdf` | Correct answer; chunks from `second.pdf` not injected |
+| 11.16 | Ask about topic from `second.pdf` | Correct answer from `second.pdf` |
+| 11.17 | Ask a question that spans both documents | Answer draws from both; no hallucination |
+
+### 11e. Edge cases
+
+| # | Action | Expected |
+|---|--------|----------|
+| 11.18 | Attach `scanned.pdf` | Warning chip: scanned PDF, no text extracted; no indexing attempted |
+| 11.19 | Attach `small.pdf` (under 80k chars) | Still goes through RAG (PDFs always use RAG); indexing chip shown |
+| 11.20 | Index enough documents to exceed the chunk threshold | Warning chip recommending the user unload documents |
