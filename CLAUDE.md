@@ -118,6 +118,13 @@ Tests cover: search trigger behaviour, search_done event payload, verbose toggle
 - Empty/wrong response → likely a code bug (streaming, tool call handling, SSE)
 - Model gives a poor answer despite having data → prompt engineering, not code
 
+**Prompt engineering debugging loop** — when a model ignores an instruction:
+1. Observe the exact failure ("model hedges instead of searching")
+2. Find what the prompt said that allowed it ("If you didn't search, explain why")
+3. Close the loophole with a direct rule ("Never say 'I recommend checking'")
+
+That loop is more effective than any technique from a course.
+
 **Gemma4 quirks to keep in mind:**
 - Emits `tool_calls` in an intermediate streaming chunk (`done=False`), not in the final `done=True` chunk — the `accumulated_tool_calls` pattern in `orchestrator.py` handles this.
 - Occasionally emits LaTeX math notation (e.g. `$\rightarrow$`) — `preprocessLatex()` in `index.html` converts common commands to Unicode before rendering.
