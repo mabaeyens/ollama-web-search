@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Main CLI entry point for ollama Search Tool."""
 
-import sys
 import logging
 import readline  # noqa: F401 — enables arrow keys and history in input()
 
-from config import VERBOSE_DEFAULT, ANSWER_PREFIX
+from config import VERBOSE_DEFAULT
 from orchestrator import ChatOrchestrator
 from formatter import (
     console, print_header, print_search_status, print_search_results,
@@ -22,7 +21,7 @@ logging.basicConfig(
 def _render_stream(orchestrator: ChatOrchestrator, user_input: str) -> None:
     """Consume stream_chat events and render them in the terminal."""
     spinner = None
-    started_answer = False
+    answer_buffer = []
 
     try:
         for event in orchestrator.stream_chat(user_input):
@@ -35,15 +34,7 @@ def _render_stream(orchestrator: ChatOrchestrator, user_input: str) -> None:
                 spinner.start()
 
             elif etype == "token":
-                if spinner:
-                    spinner.stop()
-                    spinner = None
-                if not started_answer:
-                    sys.stdout.write(f"\n{ANSWER_PREFIX}")
-                    sys.stdout.flush()
-                    started_answer = True
-                sys.stdout.write(event["content"])
-                sys.stdout.flush()
+                answer_buffer.append(event["content"])
 
             elif etype == "search_start":
                 if spinner:
@@ -65,9 +56,11 @@ def _render_stream(orchestrator: ChatOrchestrator, user_input: str) -> None:
                     print_search_status(query, "No results found")
 
             elif etype == "done":
-                if started_answer:
-                    sys.stdout.write("\n")
-                    sys.stdout.flush()
+                if spinner:
+                    spinner.stop()
+                    spinner = None
+                print_answer("".join(answer_buffer))
+                answer_buffer.clear()
                 print_rule()
 
             elif etype == "error":
