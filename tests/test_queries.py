@@ -1,7 +1,7 @@
 """Tests for the ollama Search Tool."""
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, PropertyMock
 from orchestrator import ChatOrchestrator
 
 
@@ -12,6 +12,7 @@ def _make_chunk(content="", tool_calls=None, done=True):
     chunk = MagicMock()
     chunk.message.content = content
     chunk.message.tool_calls = tool_calls
+    chunk.message.thinking = ""
     chunk.done = done
     return chunk
 
@@ -21,6 +22,14 @@ def _tool_call_stream(query="test"):
     tool_call = MagicMock()
     tool_call.function.name = "web_search"
     tool_call.function.arguments = {"query": query, "num_results": 5}
+    return iter([_make_chunk(content="", tool_calls=[tool_call], done=True)])
+
+
+def _fetch_url_stream(url="https://example.com"):
+    """Mock _call_ollama return for a fetch_url tool call."""
+    tool_call = MagicMock()
+    tool_call.function.name = "fetch_url"
+    tool_call.function.arguments = {"url": url}
     return iter([_make_chunk(content="", tool_calls=[tool_call], done=True)])
 
 
@@ -121,3 +130,84 @@ def test_reset_conversation(orchestrator):
     orchestrator.reset_conversation()
     assert len(orchestrator.conversation_history) == 1
     assert orchestrator.conversation_history[0]["role"] == "system"
+
+
+def test_fetch_url_tool_dispatch(orchestrator):
+    """fetch_url tool call should yield fetch_start/fetch_done events and pass page content to model."""
+    fake_page = "Full page content from example.com"
+    with patch.object(orchestrator, '_call_ollama', side_effect=[
+        _fetch_url_stream("https://example.com"),
+        _final_stream("The page says: Full page content."),
+    ]), patch('url_fetcher.fetch_url', return_value=fake_page) as mock_fetch:
+        events, content = _consume(orchestrator.stream_chat("What does example.com say?"))
+
+        mock_fetch.assert_called_once_with("https://example.com")
+
+        types = [e["type"] for e in events]
+        assert "fetch_start" in types
+        assert "fetch_done" in types
+
+        fetch_start = next(e for e in events if e["type"] == "fetch_start")
+        assert fetch_start["url"] == "https://example.com"
+
+        fetch_done = next(e for e in events if e["type"] == "fetch_done")
+        assert fetch_done["chars"] == len(fake_page)
+
+        # Page content must be in conversation history so the model can use it
+        tool_messages = [m for m in orchestrator.conversation_history if m.get("role") == "tool"]
+        assert any(fake_page in m["content"] for m in tool_messages)
+
+
+def test_accumulated_tool_calls_intermediate_chunk(orchestrator):
+    """Tool calls emitted in a non-final chunk (Gemma4 behaviour) must still be executed.
+
+    Gemma4:26b sends tool_calls in an intermediate chunk (done=False) and an
+    empty done=True chunk. The old code only checked the final chunk — silently
+    dropping the tool call and returning an empty response.
+    """
+    tool_call = MagicMock()
+    tool_call.function.name = "web_search"
+    tool_call.function.arguments = {"query": "Gemma4 test", "num_results": 5}
+
+    # Intermediate chunk carries tool_calls; final chunk has none
+    intermediate = _make_chunk(content="", tool_calls=[tool_call], done=False)
+    final = _make_chunk(content="", tool_calls=None, done=True)
+    # model_copy must return a message that carries the patched tool_calls
+    patched = MagicMock()
+    patched.tool_calls = [tool_call]
+    final.message.model_copy = MagicMock(return_value=patched)
+
+    with patch.object(orchestrator, '_call_ollama', side_effect=[
+        iter([intermediate, final]),
+        _final_stream("Found it."),
+    ]), patch.object(orchestrator.search_engine, 'search', return_value=FAKE_SEARCH_RESULTS):
+        events, content = _consume(orchestrator.stream_chat("Gemma4 tool call test"))
+        assert any(e["type"] == "search_start" for e in events), \
+            "Tool call from intermediate chunk was dropped — accumulated_tool_calls fix not working"
+        assert content == "Found it."
+
+
+def test_rag_score_threshold_bypassed_for_same_turn_attachment(orchestrator):
+    """When a RAG file is indexed in the same turn, query() must use score_threshold=-inf.
+
+    Meta-instructions like 'summarize this' embed nothing like document content,
+    so normal threshold filtering drops all chunks and the model hallucinates
+    that no file was attached.
+    """
+    rag_attachment = [{
+        "type": "rag",
+        "name": "book.pdf",
+        "content": "Chapter one. " * 200,  # enough for at least one chunk
+        "warning": None,
+    }]
+
+    with patch.object(orchestrator, '_call_ollama', return_value=_final_stream("Here is the summary.")), \
+         patch.object(orchestrator.rag_engine, 'query', return_value=[]) as mock_query, \
+         patch.object(orchestrator.rag_engine, 'index', return_value=3), \
+         patch.object(type(orchestrator.rag_engine), 'chunk_count', new_callable=PropertyMock, return_value=3):
+        _consume(orchestrator.stream_chat("Summarize this document", attachments=rag_attachment))
+
+        mock_query.assert_called_once()
+        _, kwargs = mock_query.call_args
+        assert kwargs.get("score_threshold") == float('-inf'), \
+            "score_threshold must be -inf when RAG files indexed this turn"
