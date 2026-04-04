@@ -4,10 +4,11 @@ import logging
 from typing import List, Dict, Optional, Iterator
 
 import ollama
-from config import MODEL_NAME, MAX_RETRIES, MAX_TOOL_STEPS, VERBOSE_DEFAULT
+from config import MODEL_NAME, MAX_RETRIES, MAX_TOOL_STEPS, VERBOSE_DEFAULT, RAG_MAX_CHUNKS
 from tools import TOOLS
 from prompts import build_system_prompt, SEARCH_RESULT_TEMPLATE
 from search_engine import SearchEngine
+from rag_engine import RagEngine
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ class ChatOrchestrator:
         self.model = model
         self.verbose = verbose
         self.search_engine = SearchEngine()
+        self.rag_engine = RagEngine()
         self.conversation_history: List[Dict] = []
         self.system_prompt_added = False
         self._add_system_prompt()
@@ -47,13 +49,42 @@ class ChatOrchestrator:
         attachments: list of dicts from file_handler.load_file() / load_file_bytes()
           {"type": "text"|"image", "name": str, "content": str, "warning": str|None}
         """
-        # Emit any per-file warnings (e.g. scanned PDF, truncation)
+        # Emit per-file warnings (scanned PDFs, etc.)
         if attachments:
             for att in attachments:
                 if att.get("warning"):
                     yield {"type": "warning", "message": att["warning"]}
 
-        # Build the user message: prepend text attachments, collect images
+        # Index RAG attachments (PDFs and large text/HTML)
+        if attachments:
+            for att in attachments:
+                if att["type"] == "rag" and att["content"]:
+                    yield {"type": "rag_indexing", "name": att["name"]}
+                    try:
+                        n_chunks = self.rag_engine.index(att["name"], att["content"])
+                        yield {"type": "rag_done", "name": att["name"], "chunks": n_chunks}
+                        # Warn if approaching memory limits
+                        if self.rag_engine.chunk_count > RAG_MAX_CHUNKS:
+                            yield {
+                                "type": "warning",
+                                "message": (
+                                    f"RAG index has {self.rag_engine.chunk_count:,} chunks. "
+                                    "Consider unloading documents you no longer need."
+                                ),
+                            }
+                    except Exception as e:
+                        yield {"type": "error", "message": f"Failed to index '{att['name']}': {e}"}
+                        return
+
+        # Auto-retrieve RAG context if index is non-empty
+        rag_chunks = []
+        if self.rag_engine.chunk_count > 0:
+            try:
+                rag_chunks = self.rag_engine.query(user_message)
+            except Exception as e:
+                logger.warning(f"RAG query failed: {e}")
+
+        # Build the user message: RAG context + text attachments + user text + images
         full_message = user_message
         images = []
         if attachments:
@@ -62,13 +93,16 @@ class ChatOrchestrator:
                 for att in attachments
                 if att["type"] == "text" and att["content"]
             ]
-            images = [
-                att["content"]
-                for att in attachments
-                if att["type"] == "image"
-            ]
+            images = [att["content"] for att in attachments if att["type"] == "image"]
             if text_parts:
-                full_message = '\n\n'.join(text_parts) + '\n\n' + user_message
+                full_message = '\n\n'.join(text_parts) + '\n\n' + full_message
+
+        if rag_chunks:
+            context = "\n\n".join(
+                f"[Source: {c['source']} | Score: {c['score']:.2f}]\n{c['text']}"
+                for c in rag_chunks
+            )
+            full_message = f"[Relevant document sections]\n{context}\n\n---\n\n{full_message}"
 
         user_msg: Dict = {"role": "user", "content": full_message}
         if images:
@@ -160,4 +194,5 @@ class ChatOrchestrator:
         self.conversation_history = []
         self.system_prompt_added = False
         self._add_system_prompt()
+        self.rag_engine.clear()
         print("Conversation reset.")

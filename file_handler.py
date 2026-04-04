@@ -78,7 +78,8 @@ def _extract_pdf(name: str, data: bytes) -> Dict:
             ),
         }
 
-    return _guard({"type": "text", "name": name, "content": text, "warning": None})
+    # PDFs always go through RAG regardless of size (consistent behaviour, better accuracy)
+    return {"type": "rag", "name": name, "content": text, "warning": None}
 
 
 def _extract_html(name: str, html: str) -> Dict:
@@ -102,9 +103,6 @@ def _extract_html(name: str, html: str) -> Dict:
 def _guard(att: Dict) -> Dict:
     content = att["content"]
     if len(content) > MAX_CONTENT_CHARS:
-        att["content"] = content[:MAX_CONTENT_CHARS]
-        att["warning"] = (
-            f"'{att['name']}' was truncated to {MAX_CONTENT_CHARS:,} characters "
-            f"(original: {len(content):,} chars). For large documents consider RAG."
-        )
+        # Upgrade to RAG instead of truncating — no token-cost concern with local models
+        att["type"] = "rag"
     return att

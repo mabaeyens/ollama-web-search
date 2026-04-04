@@ -15,6 +15,7 @@ A local AI assistant powered by **Gemma 4:26b** and **Ollama** with autonomous w
 - **Ollama** (v0.20.2+) running locally
 - **uv** package manager
 - **Gemma 4:26b** model: `ollama pull gemma4:26b`
+- **nomic-embed-text** model (for RAG): `ollama pull nomic-embed-text`
 
 ## Setup
 

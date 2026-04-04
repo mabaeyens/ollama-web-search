@@ -63,6 +63,18 @@ def _render_stream(orchestrator: ChatOrchestrator, user_input: str, attachments=
                 answer_buffer.clear()
                 print_rule()
 
+            elif etype == "rag_indexing":
+                if spinner:
+                    spinner.stop()
+                spinner = console.status(f"[dim]Indexing: {event['name']}[/dim]", spinner="dots")
+                spinner.start()
+
+            elif etype == "rag_done":
+                if spinner:
+                    spinner.stop()
+                    spinner = None
+                console.print(f"  [green]Indexed:[/green] {event['name']} ({event['chunks']} chunks)")
+
             elif etype == "warning":
                 console.print(f"  [yellow]⚠️  {event['message']}[/yellow]")
 
@@ -103,15 +115,17 @@ def main():
                 elif cmd == "/help":
                     print("""
 Available commands:
-  /help             - Show this help message
-  /quit             - Exit the program
-  /toggle           - Toggle verbose mode (show/hide search details)
-  /verbose          - Enable verbose mode
-  /quiet            - Disable verbose mode
-  /reset            - Reset conversation history
-  /attach <path>    - Attach a file to the next message (PDF, HTML, image, text)
-  /files            - List currently staged attachments
-  /detach           - Clear all staged attachments
+  /help               - Show this help message
+  /quit               - Exit the program
+  /toggle             - Toggle verbose mode (show/hide search details)
+  /verbose            - Enable verbose mode
+  /quiet              - Disable verbose mode
+  /reset              - Reset conversation history and RAG index
+  /attach <path>      - Attach a file to the next message (PDF, HTML, image, text)
+  /files              - List currently staged attachments
+  /detach             - Clear all staged attachments
+  /rag-list           - List documents currently in the RAG index
+  /rag-remove <name>  - Remove a document from the RAG index
                     """)
 
                 elif cmd == "/toggle":
@@ -153,6 +167,22 @@ Available commands:
                 elif cmd == "/detach":
                     staged_files.clear()
                     console.print("  Attachments cleared.")
+
+                elif cmd == "/rag-list":
+                    docs = orchestrator.rag_engine.list_documents()
+                    if docs:
+                        for d in docs:
+                            console.print(f"  📚 {d}")
+                        console.print(f"  [dim]Total chunks: {orchestrator.rag_engine.chunk_count}[/dim]")
+                    else:
+                        console.print("  No documents in RAG index.")
+
+                elif cmd == "/rag-remove":
+                    if not arg:
+                        print_error("Usage: /rag-remove <name>")
+                    else:
+                        orchestrator.rag_engine.remove(arg)
+                        console.print(f"  Removed '{arg}' from RAG index.")
 
                 else:
                     print(f"Unknown command: {cmd}. Type /help for options.")
