@@ -11,6 +11,7 @@ The code for this project was written and debugged collaboratively with **[Claud
 - Diagnosing and fixing bugs in the Ollama integration
 - Designing and implementing the FastAPI + SSE web interface
 - Implementing file attachment support (Phase 2)
+- Designing and implementing the RAG pipeline (Phase 3)
 - Writing unit tests and all documentation
 
 The user directed all goals, reviewed all output, and made final decisions on every design tradeoff.
@@ -116,9 +117,45 @@ A `{"type": "warning", "message": "..."}` event was added for non-fatal issues: 
 
 ---
 
-## Known limitations and Phase 3
+## Phase 3 — RAG
 
-- **Large documents:** Files above 80k characters are truncated. RAG (chunking + vector search + reranking) is the correct solution for full-document reasoning. An existing implementation is available at `github.com/mabaeyens/RAG` and is the planned basis for Phase 3.
-- **Scanned PDFs:** No OCR. The user must provide a text-based PDF or attach individual pages as images.
-- **Image reasoning quality:** Depends entirely on Gemma 4's multimodal capabilities for the specific image type.
-- **Attachment persistence:** Files are single-turn only. There is no mechanism to "keep this document in context for the whole session" without re-attaching.
+### Embedding model choice
+
+Rather than using `sentence-transformers` for both embedding and reranking (as in the original RAG repo), Phase 3 uses **`nomic-embed-text` via Ollama** for embeddings. This keeps embeddings consistent with the existing Ollama interface and eliminates the ~1.5GB `sentence-transformers`+PyTorch download for that role. The CrossEncoder reranker still uses `sentence-transformers` because no reranker model is available through Ollama. Net result: `sentence-transformers` is a dependency but only for ~100MB of reranker weights, not the full embedding stack.
+
+### ChromaDB version and in-memory store
+
+The original RAG repo was built against ChromaDB 0.5.15 and had extensive defensive code (batch sleeps, recovery loops, telemetry-dir bugs) caused by SQLite persistence issues. Phase 3 uses the latest stable ChromaDB (1.5.5) with `EphemeralClient()` — fully in-memory, no SQLite, no file locking. Almost all the original defensive code became unnecessary.
+
+**Discovered issue:** ChromaDB 1.x uses a shared Rust backend per process. Two `EphemeralClient()` instances in the same process share the backend, so creating a collection named `"docs"` in a second instance raises `InternalError: Collection [docs] already exists`. Fix: UUID suffix per collection name (`docs_{uuid4().hex[:8]}`). This affected tests, where the `orchestrator` pytest fixture creates a new `ChatOrchestrator` (and thus a new `RagEngine`) for each test.
+
+### RAG repo integration decision
+
+The existing `github.com/mabaeyens/RAG` repo was reviewed as a potential base. Decision: **rewrite from scratch** in `ollama-web-search`. Reasons:
+1. The original had complexity specific to `PersistentClient` that doesn't apply to `EphemeralClient`.
+2. The `_log_memory_usage` method referenced `self.telemetry_dir` which was never assigned in `__init__` (latent bug).
+3. Copying the code would have imported problems that don't exist with the new stack.
+4. The RAG repo remains useful as a standalone bulk ingestor; no cross-repo dependency was created.
+
+### RAG trigger strategy
+
+Decision: **PDFs always go through RAG** regardless of size. HTML/text files above 80k chars also go through RAG. Rationale: PDFs are structurally long-form documents; consistent behaviour is more important than the marginal overhead of indexing a 2-page PDF. Local models have no token cost, so the tradeoff calculus differs from cloud APIs.
+
+The previous 80k-char truncation + warning behaviour is replaced: `file_handler._guard()` now upgrades the attachment type to `"rag"` instead of truncating.
+
+### Cross-turn retrieval
+
+When the RAG index is non-empty, `stream_chat()` queries the index on every message — no re-attachment required. Chunks are injected only if their CrossEncoder score exceeds 0.0 (negative scores indicate irrelevance). For questions unrelated to any indexed document, the CrossEncoder naturally filters all chunks out.
+
+### Memory management
+
+`RagEngine.clear()` recreates the `EphemeralClient` and collection rather than calling `collection.delete()`. ChromaDB does not reliably release vector memory through collection deletion alone in CPython. Recreating the client object allows the garbage collector to free the memory.
+
+---
+
+## Known limitations
+
+- **Scanned PDFs**: No OCR. The user must provide a text-based PDF or attach individual pages as images.
+- **Image reasoning quality**: Depends entirely on Gemma 4's multimodal capabilities.
+- **RAG index not persisted**: The in-memory index is lost on server restart. Documents must be re-attached each session. A persistent option (ChromaDB `PersistentClient`) is a potential future addition.
+- **No RAG chunk sourcing in UI**: The web UI does not yet show which chunks were used to answer a question. This is tracked in the backlog.
