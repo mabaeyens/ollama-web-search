@@ -5,6 +5,7 @@ To build a **local, private AI assistant** running on macOS that:
 - Uses **Gemma 4:26b** (via Ollama) as the core reasoning engine.
 - Possesses **autonomous web search capabilities** to answer questions about events after the model's training cutoff (April 2024).
 - Decides **when** to search based on query context (ReAct pattern) rather than relying on manual triggers.
+- Supports **file attachments** (PDF, HTML, images, text/code) with RAG for large documents.
 - Provides both a **CLI interface** and a **local web UI** with streaming markdown responses.
 - Runs entirely locally with **zero-cost** search (DuckDuckGo) and no external API keys.
 
@@ -13,207 +14,155 @@ To build a **local, private AI assistant** running on macOS that:
 | Component | Choice | Reasoning |
 |-----------|--------|-----------|
 | **LLM** | `gemma4:26b` | High reasoning capability, MoE architecture (4b active params), available via Ollama. |
-| **Runtime** | Ollama (v0.20.2+) | Native tool calling support, local execution, easy model management. |
-| **Language** | Python 3.12+ | 3.9 is EOL (April 2026); 3.12 offers better performance and syntax. |
+| **Runtime** | Ollama (v0.20.2+) | Native tool calling + multimodal support, local execution. |
+| **Language** | Python 3.12+ | Better performance and syntax; 3.9 is EOL. |
 | **Package Manager** | `uv` | Fast dependency resolution, reproducible lockfiles. |
 | **Search Engine** | DuckDuckGo (`ddgs`) | Free, no API key. Ollama native search disabled (requires paid subscription). |
-| **CLI UI** | Rich library | Spinners, formatted output, toggleable verbosity. |
-| **Web UI** | FastAPI + SSE + vanilla HTML/JS | No build step, full control, streaming via SSE, markdown via marked.js. |
-| **Storage** | Local FS + GitHub + Proton Drive | Secure, version-controlled, end-to-end encrypted backup. |
+| **Embeddings** | `nomic-embed-text` via Ollama | Consistent with existing Ollama interface; 768 dims; ~274MB. |
+| **Reranker** | CrossEncoder (`cross-encoder/ms-marco-MiniLM-L-6-v2`) | No Ollama reranker available; improves retrieval quality; ~100MB. |
+| **Vector store** | ChromaDB `EphemeralClient` (in-memory) | No persistence issues; session-scoped; clean RAM release on reset. |
+| **PDF extraction** | PyMuPDF (`fitz`) | Fast, broad format support; validated in prior RAG project. |
+| **HTML extraction** | BeautifulSoup | Strips tags cleanly; returns readable text. |
+| **CLI UI** | Rich library | Spinners, markdown rendering, formatted output. |
+| **Web UI** | FastAPI + SSE + vanilla HTML/JS | No build step, streaming via SSE, markdown via marked.js. |
 
 ## 3. Architecture Overview
 
-The system follows a **ReAct (Reasoning + Acting)** loop built on an event-based streaming architecture:
-
 ```
-main.py (_render_stream)     server.py (/chat SSE endpoint)
-          └────────────────────────────┘
-                      │  consumes events
-         ChatOrchestrator.stream_chat()
-                      │  yields events
-         ┌────────────┴────────────┐
-    _call_ollama()          SearchEngine
-  ollama.chat(stream=True)   ddgs.text()
+main.py (_render_stream)         server.py (/chat SSE endpoint)
+          └────────────────────────────────┘
+                        │  consumes events
+           ChatOrchestrator.stream_chat()
+                        │  yields events
+         ┌──────────────┼──────────────┐
+   _call_ollama()  SearchEngine    RagEngine
+ ollama.chat()      ddgs.text()   index() / query()
+                               ┌──────┴──────┐
+                         ollama.embed()   ChromaDB
+                         (nomic-embed)   EphemeralClient
+                                    CrossEncoder reranker
 ```
 
 **Events yielded by `stream_chat()`:**
-1. `thinking` — model is processing; consumers show spinner
-2. `token` — answer token; consumers append and render incrementally
-3. `search_start` — search beginning; consumers show search indicator
-4. `search_done` — results ready; consumers update indicator with count
-5. `done` — turn complete with full content
-6. `error` — error with message
 
-**System prompt** is built dynamically (`build_system_prompt()`) and includes today's date, so the model correctly identifies past events as searchable.
+| Event | Payload | Meaning |
+|-------|---------|---------|
+| `thinking` | — | Model is processing |
+| `token` | `content` | Answer token |
+| `search_start` | `query` | Web search beginning |
+| `search_done` | `query, count, results` | Search complete |
+| `rag_indexing` | `name` | Document being indexed |
+| `rag_done` | `name, chunks` | Indexing complete |
+| `warning` | `message` | Non-fatal issue |
+| `done` | `content` | Turn complete |
+| `error` | `message` | Fatal error |
+
+**System prompt** is built dynamically (`build_system_prompt()`) and includes today's date.
 
 ## 4. Key Design Decisions
 
-### A. Autonomous Search Triggers
-- Model decides dynamically based on system prompt rules (date-aware) and its own judgment.
-- No hardcoded heuristics — the model handles edge cases.
+### A. Autonomous Search
+Model decides dynamically based on system prompt rules (date-aware). No hardcoded heuristics.
 
 ### B. Search Strategy
-- **Active**: `ddgs` Python library (free, no API key).
-- **Disabled**: Ollama native `web_search` requires a paid Ollama subscription — `USE_NATIVE_SEARCH = False`.
-- **Fallback**: If search fails, model is instructed to inform the user and answer from internal knowledge.
+- **Active**: `ddgs` (free, no API key).
+- **Disabled**: Ollama native `web_search` requires paid subscription — `USE_NATIVE_SEARCH = False`.
 
-### C. Transparency (Verbose Mode)
-- CLI: `/verbose`, `/quiet`, `/toggle` commands; spinner always visible.
-- Web: checkbox in header; search chip always visible (result count shown regardless).
+### C. File Attachments
+- PDFs always go through RAG (consistent behaviour, better accuracy for long docs).
+- HTML/text injected directly if ≤ 80k chars; upgraded to RAG above that.
+- Images passed via Ollama multimodal `images` field (base64).
+- Scanned PDFs detected (empty text layer) and warned rather than silently failing.
+- Attachments are single-turn for images/text; RAG index persists across turns.
 
-### D. Event-Based Architecture
-- `ChatOrchestrator` is display-agnostic: yields typed events, no I/O.
-- CLI renderer (`_render_stream` in `main.py`) handles Rich spinners and stdout.
-- Web renderer (`/chat` endpoint in `server.py`) forwards events as SSE via asyncio queue + background thread.
-- Single mockable boundary: `_call_ollama()` — tests mock this with a list of MagicMock chunks.
+### D. RAG Design
+- Trigger: PDFs always; HTML/text > 80k chars.
+- Embeddings: `nomic-embed-text` via `ollama.embed()` batch API.
+- Storage: `EphemeralClient()` with UUID collection names (required: ChromaDB 1.x shares Rust backend per process — fixed names collide in tests).
+- Retrieval: cosine similarity, top-10 candidates → CrossEncoder reranker → top-4.
+- Cross-turn: RAG index queried on every message when non-empty; chunks injected only if CrossEncoder score > 0.0.
+- Memory: `clear()` recreates `EphemeralClient` — collection delete alone does not release RAM.
+- Reference: existing `github.com/mabaeyens/RAG` repo used as algorithm reference; no code dependency.
 
-### E. Environment Management
-- **Tool**: `uv` (not `pip`/`venv`).
-- **Workflow**: `uv venv --python 3.12` → `source .venv/bin/activate` → `uv sync`.
+### E. Event-Based Architecture
+`ChatOrchestrator` is display-agnostic. Single mockable boundary: `_call_ollama()`.
+
+### F. Async/Sync Bridge (Web)
+`stream_chat()` is synchronous. FastAPI is async. Bridge: background thread + `asyncio.Queue`.
+
+### G. Environment Management
+`uv` (not `pip`/`venv`). `uv venv --python 3.12` → `source .venv/bin/activate` → `uv sync`.
 
 ## 5. Current Project Status
 
 ### Completed ✅
-- All core source files (`main.py`, `orchestrator.py`, `search_engine.py`, `tools.py`, `prompts.py`, `formatter.py`, `config.py`)
-- Event-based streaming architecture (`stream_chat()` generator)
-- CLI with streaming output, spinners, search status, verbose mode
-- Web interface: FastAPI server (`server.py`) + single-page UI (`static/index.html`)
-  - SSE streaming with live markdown rendering (marked.js)
-  - Thinking animation, search chips, verbose toggle, reset
-- 7 unit tests (all mocked, no Ollama needed)
-- Full documentation (README, CLAUDE.md, PROJECT_SUMMARY.md)
-- Git repository at `github.com/mabaeyens/ollama-web-search`
+- **Phase 1** — Core CLI + Web Interface
+  - Event-based streaming architecture (`stream_chat()` generator)
+  - CLI: Rich spinners, markdown rendering, verbose mode, arrow-key history
+  - Web: FastAPI + SSE, live markdown (marked.js), thinking animation, search chips
+  - 7 unit tests (all mocked)
+- **Phase 2** — File Attachments
+  - `file_handler.py`: PDF (PyMuPDF), HTML (BeautifulSoup), images (base64), text
+  - Scanned PDF detection, 80k-char context guard
+  - CLI: `/attach`, `/files`, `/detach`; Web: 📎 button, file chips, FormData upload
+  - `warning` event type for non-fatal issues
+- **Phase 3** — RAG
+  - `rag_engine.py`: EphemeralClient ChromaDB, nomic-embed-text, CrossEncoder reranker
+  - Auto-index on PDF attach; auto-retrieve on every turn when index non-empty
+  - CLI: `/rag-list`, `/rag-remove`; Web: indexing chip, green Documents panel
+  - `GET /rag/documents`, `DELETE /rag/documents/{name}` endpoints
 
 ## 6. File Structure
 
 ```
 ollama-web-search/
-├── main.py                 # CLI entry point + _render_stream()
-├── server.py               # FastAPI web server + SSE /chat endpoint
-├── orchestrator.py         # ChatOrchestrator: stream_chat() generator
-├── search_engine.py        # DuckDuckGo search (ddgs)
-├── tools.py                # Ollama tool schema for web_search
-├── prompts.py              # build_system_prompt() — date-aware
-├── formatter.py            # Rich console helpers (CLI only)
-├── config.py               # All tunables
-├── pyproject.toml          # uv project config
-├── uv.lock                 # Locked dependencies
+├── main.py              # CLI entry point + _render_stream()
+├── server.py            # FastAPI web server + SSE /chat endpoint
+├── orchestrator.py      # ChatOrchestrator: stream_chat() generator
+├── rag_engine.py        # RagEngine: index, query, remove, clear
+├── file_handler.py      # File extraction: PDF, HTML, images, text
+├── search_engine.py     # DuckDuckGo search (ddgs)
+├── tools.py             # Ollama tool schema for web_search
+├── prompts.py           # build_system_prompt() — date-aware
+├── formatter.py         # Rich console helpers (CLI only)
+├── config.py            # All tunables including RAG_* knobs
+├── pyproject.toml       # uv project config
+├── uv.lock              # Locked dependencies
 ├── .gitignore
 ├── README.md
 ├── CLAUDE.md
 ├── PROJECT_SUMMARY.md
+├── DEVELOPMENT.md       # Development log with decisions and rationale
+├── TEST_PLAN.md         # Structured web UI test plan
 ├── static/
-│   └── index.html          # Web UI (vanilla HTML/CSS/JS)
+│   └── index.html       # Web UI (vanilla HTML/CSS/JS + marked.js)
 └── tests/
-    ├── conftest.py          # sys.path injection
-    └── test_queries.py      # 7 unit tests
+    ├── conftest.py       # sys.path injection
+    └── test_queries.py   # 7 unit tests
 ```
 
 ## 7. Roadmap
 
-### Phase 2 — File Attachments
+### Phase 4 — Backlog
 
-Allow attaching files (PDF, HTML, images) to queries so the model can reason over local content.
+- **Show RAG chunks in web UI**: When a response uses RAG, show the source chunks (filename, score) that were injected. UI pattern: collapsible "Sources" section below the assistant bubble. Already tracked in backlog.
 
-#### Supported file types
+### Phase 5 — Future (not planned)
 
-| File type | Extraction | Ollama API |
-|-----------|-----------|------------|
-| Images (PNG, JPG, …) | Raw bytes → base64 | `images` field on the message dict |
-| HTML | BeautifulSoup → readable text | Prepended to user message content |
-| Text / code | Read as-is | Prepended to user message content |
-| PDF (text-based) | `pdfplumber` → text | Prepended to user message content |
-| PDF (scanned) | No text layer — warn user; optionally send pages as images | Image path or skip |
+- **Scanned PDF OCR**: Detect scanned PDFs and run OCR (e.g. `tesseract`) to extract text before indexing.
+- **Persistent RAG index**: Optionally persist the ChromaDB index to disk so documents survive session restarts.
 
-#### Non-obvious constraints to keep in mind
+## 8. Backlog
 
-1. **Ollama multimodal format** — images can't be appended as text. The message must carry `"images": ["<base64>"]`. `stream_chat()` signature must change to accept attachments.
-2. **HTML must be parsed** — injecting raw HTML is wasteful and confusing for the model. Strip tags with BeautifulSoup.
-3. **Scanned PDFs have no extractable text** — detect the empty-text case and warn or fall back to the image path.
-4. **Context window guard** — large documents can overflow the 128k context. Truncate with a warning above a threshold (~80k chars). RAG is the right path for very large documents (Phase 3).
-5. **File persistence across turns** — decide: inject once and leave in `conversation_history` (stays for whole session), or inject per message (single-turn). Default: single-turn (appended to the user message, not stored separately).
-6. **Web UI upload mechanism** — `/chat` currently accepts `{"message": str}`. Files require multipart form data or a separate `/upload` endpoint. Multipart is simpler.
-7. **CLI attach UX** — use `/attach <path>` to stage a file for the next message; cleared after each turn. Show staged file in the prompt.
-
-#### Implementation steps
-
-| Step | What | Files touched |
-|------|------|---------------|
-| 1 | `file_handler.py` — extract text from PDF/HTML/text; return base64 for images; detect scanned PDFs | new file |
-| 2 | `orchestrator.py` — `stream_chat(user_message, attachments=None)`; prepend text content; add `images` key for image attachments | `orchestrator.py` |
-| 3 | CLI `/attach <path>` command; staged file cleared after each turn; show in prompt | `main.py` |
-| 4 | Web UI file input button + chip display; change `/chat` to accept multipart form data | `server.py`, `static/index.html` |
-| 5 | Context size guard — truncate + warn if extracted content exceeds threshold | `file_handler.py` or `orchestrator.py` |
-
-#### New dependencies (implemented)
-
-```
-pymupdf           # PDF text extraction (PyMuPDF / fitz) — replaces pdfplumber
-beautifulsoup4    # HTML stripping
-python-multipart  # FastAPI multipart form data
-```
-
-### Phase 3 — RAG for large PDFs
-
-#### Design decisions
-
-| Decision | Choice | Reasoning |
-|----------|--------|-----------|
-| Embeddings | `nomic-embed-text` via Ollama | Consistent with existing Ollama interface; ~274MB; coexists with gemma4:26b on 32GB |
-| Reranking | CrossEncoder (`cross-encoder/ms-marco-MiniLM-L-6-v2`) via `sentence-transformers` | No Ollama reranker available; ~100MB; meaningfully improves retrieval quality |
-| Vector store | ChromaDB `EphemeralClient()` (in-memory) | Avoids all persistence/SQLite issues from the original RAG repo |
-| Trigger | PDFs always → RAG; HTML/text > 80k chars → RAG; small text → direct inject | Consistent for PDFs regardless of size; no token-cost concern with local models |
-| Multi-document | All docs in one collection, tagged by `source` filename | User queries across all attached docs; individual docs removable |
-| Cross-turn retrieval | RAG index queried on every message when non-empty; chunks injected only if reranker score > 0 | Transparent across turns without re-attachment; irrelevant docs filtered by score threshold |
-| Memory management | Recreate `EphemeralClient()` on reset; `remove(name)` deletes chunks by source tag | Python GC doesn't free ChromaDB RAM reliably on collection delete alone |
-| Integration | New `rag_engine.py` in ollama-web-search; RAG repo used as algorithm reference only | No cross-repo dependency; RAG repo stays as standalone bulk ingestor |
-
-#### New events
-
-```
-{"type": "rag_indexing", "name": "file.pdf"}          — indexing started
-{"type": "rag_done",     "name": "file.pdf", "chunks": N}  — indexing complete
-```
-
-#### New dependencies
-
-```
-chromadb              # In-memory vector store (latest stable, not 0.5.x)
-sentence-transformers # CrossEncoder reranker only
-```
-
-#### New config knobs (config.py)
-
-```
-RAG_CHUNK_SIZE      = 400   # words per chunk
-RAG_CHUNK_OVERLAP   = 40    # word overlap between chunks
-RAG_RETRIEVE_K      = 10    # initial candidates before reranking
-RAG_RERANK_TOP_K    = 4     # chunks to inject after reranking
-RAG_SCORE_THRESHOLD = 0.0   # CrossEncoder score below which chunks are dropped
-RAG_MAX_CHUNKS      = 10000 # warn user to unload documents above this
-```
-
-#### Implementation steps
-
-| Step | What | Files |
-|------|------|-------|
-| 1 | `rag_engine.py` — `index()`, `query()`, `remove()`, `clear()`, `list_documents()`, `chunk_count` | new file |
-| 2 | `file_handler.py` — PDFs return `{"type": "rag", ...}`; large text/HTML → `{"type": "rag", ...}` | `file_handler.py` |
-| 3 | `orchestrator.py` — hold `RagEngine` instance; handle `rag` attachments (index + yield events); auto-retrieve on every turn when index non-empty | `orchestrator.py` |
-| 4 | `server.py` — `GET /rag/documents`, `DELETE /rag/documents/{name}` endpoints | `server.py` |
-| 5 | Web UI — indexing chip, Documents panel with per-doc remove | `static/index.html` |
-| 6 | CLI — `/rag-list`, `/rag-remove <name>` commands; indexing spinner | `main.py` |
-
-## 8. Backlog / Open Decisions
-
-- **CLI markdown rendering** — Resolved: CLI now buffers tokens and renders the full answer with Rich Markdown (`03c7bf1`).
-- **Show RAG chunks in web UI** — When a response uses RAG, show the source chunks (filename, page, score) that were injected so the user can verify where the answer came from. UI pattern: collapsible "Sources" section below the assistant bubble.
+- **Show RAG chunks in web UI** — When a response is generated from RAG retrieval, show the source chunks (filename, score) that were injected so the user can verify where the answer came from. UI pattern: collapsible "Sources" section below the assistant bubble.
 
 ## 9. Notes for Claude Code Context
 
-- Do not suggest `pip` or `venv`; always use `uv`.
-- Do not suggest cloud APIs; keep search local/free.
-- Do not change the model to anything other than `gemma4:26b` unless requested.
+- Always use `uv` — never `pip` or `venv`.
+- Keep all models and search local — no cloud APIs or API keys.
+- Do not change `MODEL_NAME` from `gemma4:26b` unless explicitly requested.
 - Do not set `USE_NATIVE_SEARCH = True` — Ollama native requires a paid subscription.
-- `ChatOrchestrator` must remain display-agnostic — no print/console calls in orchestrator.py.
+- Do not change `EMBED_MODEL` from `nomic-embed-text` unless explicitly requested.
+- `ChatOrchestrator` must remain display-agnostic — no print/console calls in `orchestrator.py`.
 - Tests mock `_call_ollama`, not higher-level methods. Mock chunks need `.message.content`, `.message.tool_calls`, `.done`.
+- ChromaDB `EphemeralClient` uses UUID collection names — required due to shared Rust backend in ChromaDB 1.x.

@@ -1,12 +1,14 @@
 # ollama Search Tool
 
-A local AI assistant powered by **Gemma 4:26b** and **Ollama** with autonomous web search. Available as a CLI tool and a local web interface with streaming markdown responses.
+A local AI assistant powered by **Gemma 4:26b** and **Ollama** with autonomous web search, file attachments, and RAG for large documents. Available as a CLI tool and a local web interface with streaming markdown responses.
 
 ## Features
 
 - **Autonomous Search**: Model decides when to search based on query type (ReAct pattern)
-- **Streaming responses**: Tokens appear live; markdown rendered as you read
+- **Streaming responses**: Tokens buffered and rendered as formatted markdown
 - **Two interfaces**: Rich CLI and local web UI (FastAPI + SSE)
+- **File attachments**: PDFs (RAG), HTML, images (multimodal), text/code files
+- **RAG**: Large documents chunked, embedded with `nomic-embed-text`, reranked with CrossEncoder — retrieved automatically on every turn
 - **Private**: Runs entirely on your local machine — no cloud APIs, no API keys
 
 ## Prerequisites
@@ -15,7 +17,7 @@ A local AI assistant powered by **Gemma 4:26b** and **Ollama** with autonomous w
 - **Ollama** (v0.20.2+) running locally
 - **uv** package manager
 - **Gemma 4:26b** model: `ollama pull gemma4:26b`
-- **nomic-embed-text** model (for RAG): `ollama pull nomic-embed-text`
+- **nomic-embed-text** model (for RAG embeddings): `ollama pull nomic-embed-text`
 
 ## Setup
 
@@ -24,6 +26,8 @@ uv venv --python 3.12
 source .venv/bin/activate
 uv sync
 ```
+
+> On first use, the CrossEncoder reranker model (~100MB) downloads automatically from HuggingFace and caches to `~/.cache/huggingface/`.
 
 ## Running
 
@@ -45,16 +49,34 @@ python server.py
 | `/toggle` | Toggle verbose mode (show/hide search details) |
 | `/verbose` | Enable verbose mode |
 | `/quiet` | Disable verbose mode |
-| `/reset` | Reset conversation history |
+| `/reset` | Reset conversation history and RAG index |
+| `/attach <path>` | Stage a file for the next message (PDF, HTML, image, text) |
+| `/files` | List currently staged attachments |
+| `/detach` | Clear all staged attachments |
+| `/rag-list` | List documents currently in the RAG index |
+| `/rag-remove <name>` | Remove a document from the RAG index |
 | `/quit` | Exit |
 
 ## Web Interface
 
-The web UI supports the same features as the CLI:
 - Streaming responses with live markdown rendering
-- Search status chips (searching → found N results)
+- 📎 file attachment button — PDF, HTML, images, text/code
+- Green Documents panel showing RAG-indexed files with per-doc remove
+- Search status chips, indexing chips, warning chips
 - Verbose toggle and conversation reset in the header
 - Enter to send, Shift+Enter for newline
+
+## File Attachments
+
+| File type | Behaviour |
+|-----------|-----------|
+| PDF (any size) | Always indexed via RAG |
+| HTML | Text extracted (BeautifulSoup); RAG if > 80k chars |
+| Text / code | Injected directly; RAG if > 80k chars |
+| Images | Passed via Ollama multimodal API (base64) |
+| Scanned PDF | Warning emitted; no text extractable |
+
+RAG documents persist in the session index across turns — no need to re-attach for follow-up questions. Use `/rag-remove` or Reset to clear.
 
 ## Testing
 
@@ -71,18 +93,19 @@ All settings are in `config.py`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `MODEL_NAME` | `gemma4:26b` | Ollama model |
+| `MODEL_NAME` | `gemma4:26b` | Ollama chat model |
+| `EMBED_MODEL` | `nomic-embed-text` | Ollama embedding model for RAG |
+| `RERANK_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | CrossEncoder reranker |
 | `USE_NATIVE_SEARCH` | `False` | Disabled — requires paid Ollama subscription |
-| `MAX_SEARCH_RESULTS` | `5` | Results per search |
+| `MAX_SEARCH_RESULTS` | `5` | Results per web search |
 | `MAX_TOOL_STEPS` | `5` | Max tool calls per turn |
 | `MAX_RETRIES` | `3` | API error retries per call |
 | `SEARCH_TIMEOUT` | `30` | DuckDuckGo timeout in seconds |
 | `VERBOSE_DEFAULT` | `False` | Start in verbose mode |
 | `OLLAMA_HOST` | `http://localhost:11434` | Override via `OLLAMA_HOST` env var |
-
-## Roadmap
-
-### File Attachments (next)
-- **Images**: Gemma 4 is natively multimodal — pass image bytes directly to Ollama
-- **Text / code files**: Extract content and inject into conversation context
-- **Large PDFs**: RAG — chunk, embed (`sentence-transformers`), store (ChromaDB), retrieve relevant sections per query
+| `RAG_CHUNK_SIZE` | `400` | Words per RAG chunk |
+| `RAG_CHUNK_OVERLAP` | `40` | Word overlap between chunks |
+| `RAG_RETRIEVE_K` | `10` | Candidates retrieved before reranking |
+| `RAG_RERANK_TOP_K` | `4` | Chunks injected after reranking |
+| `RAG_SCORE_THRESHOLD` | `0.0` | Minimum CrossEncoder score to inject |
+| `RAG_MAX_CHUNKS` | `10000` | Warn when index exceeds this size |

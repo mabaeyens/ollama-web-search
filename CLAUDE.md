@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**ollama Search Tool** — a local AI assistant using Gemma 4:26b via Ollama with autonomous web search. Available as both a CLI tool and a local web interface. The model decides when to call the `web_search` tool based on query type (ReAct pattern).
+**ollama Search Tool** — a local AI assistant using Gemma 4:26b via Ollama with autonomous web search, file attachments (PDF/HTML/images/text), and RAG for large documents. Available as a CLI and a local web interface.
 
 ## Commands
 
@@ -34,7 +34,7 @@ uv run pytest
 uv run pytest tests/test_queries.py::test_toggle_verbose
 ```
 
-Requires Ollama running locally (`http://localhost:11434` by default) with `gemma4:26b` pulled. Override with `OLLAMA_HOST` env var.
+Requires Ollama running locally (`http://localhost:11434` by default) with `gemma4:26b` and `nomic-embed-text` pulled. Override host with `OLLAMA_HOST` env var.
 
 ## Architecture
 
@@ -43,40 +43,51 @@ main.py (CLI loop + _render_stream)     server.py (FastAPI + SSE)
          └──────────────────────────────────────┘
                          │
               ChatOrchestrator (orchestrator.py)
-                    │  stream_chat() → yields events
+                    │  stream_chat(user_message, attachments=None) → yields events
                     ├── _call_ollama() → ollama.chat(stream=True)
-                    └── SearchEngine (search_engine.py)
-                              └── DuckDuckGo (ddgs)
+                    ├── SearchEngine (search_engine.py) → ddgs.text()
+                    └── RagEngine (rag_engine.py)
+                              ├── ollama.embed() → nomic-embed-text
+                              ├── chromadb.EphemeralClient (in-memory)
+                              └── CrossEncoder (sentence-transformers)
 
-config.py    — model name, timeouts, display flags, OLLAMA_HOST
-tools.py     — Ollama tool schema for web_search function
-prompts.py   — build_system_prompt() injects today's date + search rules
-formatter.py — Rich console helpers (CLI only)
+file_handler.py  — load_file() / load_file_bytes(): PDF→RAG, HTML→text, image→base64
+config.py        — all tunables including RAG_* knobs
+tools.py         — Ollama tool schema for web_search
+prompts.py       — build_system_prompt() injects today's date + search rules
+formatter.py     — Rich console helpers (CLI only)
 static/index.html — single-page web UI (vanilla HTML/CSS/JS + marked.js)
 ```
 
-**Event-based streaming flow:** `ChatOrchestrator.stream_chat()` is a generator that yields typed events:
-- `{"type": "thinking"}` — model is processing
-- `{"type": "token", "content": "..."}` — answer token (streamed)
-- `{"type": "search_start", "query": "..."}` — search beginning
-- `{"type": "search_done", "query": "...", "count": N, "results": [...]}` — search complete
-- `{"type": "done", "content": "..."}` — turn complete, full answer
-- `{"type": "error", "message": "..."}` — error occurred
+**Event-based streaming flow:** `ChatOrchestrator.stream_chat()` yields typed events consumed by both CLI and web server:
 
-The CLI (`_render_stream` in `main.py`) and web server (`/chat` SSE endpoint in `server.py`) consume the same events differently.
+| Event | Payload | Meaning |
+|-------|---------|---------|
+| `thinking` | — | Model is processing |
+| `token` | `content` | Answer token (buffered by CLI, streamed by web) |
+| `search_start` | `query` | Web search beginning |
+| `search_done` | `query, count, results` | Search complete |
+| `rag_indexing` | `name` | Document being indexed into RAG |
+| `rag_done` | `name, chunks` | Indexing complete |
+| `warning` | `message` | Non-fatal issue (scanned PDF, chunk limit) |
+| `done` | `content` | Turn complete, full answer |
+| `error` | `message` | Fatal error |
 
 **Mockable boundary:** `_call_ollama()` is the single point tests mock — returns an iterable of stream chunks.
 
-**Search:** Ollama native search is disabled (`USE_NATIVE_SEARCH = False`) — it requires a paid Ollama subscription. DuckDuckGo (`ddgs`) is the active search engine.
+**RAG flow:** PDFs always go through RAG. HTML/text > 80k chars also go through RAG. On every turn, if the RAG index is non-empty, `rag_engine.query()` retrieves and reranks chunks; those scoring > 0.0 are prepended to the user message as `[Relevant document sections]`.
+
+**Search:** Ollama native search disabled (`USE_NATIVE_SEARCH = False`) — requires paid subscription. DuckDuckGo (`ddgs`) is active.
 
 ## Configuration
 
-All tunables live in `config.py` (not git-ignored, no `.env`):
-- `MODEL_NAME` — Ollama model to use
-- `USE_NATIVE_SEARCH` — `False` (Ollama native requires paid subscription)
-- `MAX_SEARCH_RESULTS`, `SEARCH_TIMEOUT`, `MAX_RETRIES`, `MAX_TOOL_STEPS`
-- `VERBOSE_DEFAULT` — whether to show search details by default
-- `OLLAMA_HOST` — override via env var
+All tunables in `config.py` (not git-ignored, no `.env`):
+- `MODEL_NAME`, `OLLAMA_HOST`
+- `USE_NATIVE_SEARCH`, `MAX_SEARCH_RESULTS`, `SEARCH_TIMEOUT`, `MAX_RETRIES`, `MAX_TOOL_STEPS`
+- `VERBOSE_DEFAULT`
+- `EMBED_MODEL` — `nomic-embed-text` (Ollama)
+- `RERANK_MODEL` — `cross-encoder/ms-marco-MiniLM-L-6-v2` (sentence-transformers)
+- `RAG_CHUNK_SIZE`, `RAG_CHUNK_OVERLAP`, `RAG_RETRIEVE_K`, `RAG_RERANK_TOP_K`, `RAG_SCORE_THRESHOLD`, `RAG_MAX_CHUNKS`
 
 ## Tests
 
@@ -88,8 +99,11 @@ Tests cover: search trigger behaviour, search_done event payload, verbose toggle
 
 ## Constraints
 
-- Always use `uv` for dependency management — never `pip` or `venv`.
-- Keep search local and free — no cloud APIs or API keys.
-- Do not change the model from `gemma4:26b` unless the user explicitly requests it.
-- Do not set `USE_NATIVE_SEARCH = True` — Ollama native search requires a paid subscription.
-- If `.env` is added in the future, ensure it and `.venv/` are in `.gitignore`.
+- Always use `uv` — never `pip` or `venv`.
+- Keep all models and search local — no cloud APIs or API keys.
+- Do not change `MODEL_NAME` from `gemma4:26b` unless explicitly requested.
+- Do not set `USE_NATIVE_SEARCH = True` — requires paid Ollama subscription.
+- Do not change `EMBED_MODEL` from `nomic-embed-text` unless explicitly requested.
+- `ChatOrchestrator` must remain display-agnostic — no print/console calls in `orchestrator.py`.
+- Tests mock `_call_ollama`, not higher-level methods. Mock chunks need `.message.content`, `.message.tool_calls`, `.done`.
+- ChromaDB `EphemeralClient` in `rag_engine.py` uses UUID collection names — required because ChromaDB 1.x shares a Rust backend per process; fixed collection names cause collisions in tests.
