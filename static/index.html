@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ollama Search Tool</title>
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="/static/marked.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -111,6 +111,30 @@
       color: var(--accent);
     }
 
+    /* ── Global status bar ── */
+    #statusBar {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      background: #eff6ff;
+      border-bottom: 1px solid #bfdbfe;
+      font-size: 12px;
+      color: #1d4ed8;
+      flex-shrink: 0;
+    }
+
+    #statusBar .bar-spinner {
+      width: 13px;
+      height: 13px;
+      border: 2px solid #bfdbfe;
+      border-top-color: #2563eb;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      will-change: transform;
+      flex-shrink: 0;
+    }
+
     /* ── Chat area ── */
     #chat {
       flex: 1;
@@ -206,32 +230,29 @@
 
     @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 
-    /* Thinking indicator (three dots) */
+    /* Thinking indicator */
     .thinking {
       display: flex;
       align-items: center;
-      gap: 5px;
-      padding: 14px 16px;
+      gap: 8px;
+      padding: 12px 16px;
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       border-bottom-left-radius: 4px;
+      color: var(--text-muted);
+      font-size: 13px;
     }
 
-    .thinking span {
-      width: 7px;
-      height: 7px;
+    .thinking .t-spinner {
+      width: 13px;
+      height: 13px;
+      border: 2px solid var(--border);
+      border-top-color: var(--text-muted);
       border-radius: 50%;
-      background: var(--text-muted);
-      animation: bounce 1.2s ease-in-out infinite;
-    }
-
-    .thinking span:nth-child(2) { animation-delay: 0.2s; }
-    .thinking span:nth-child(3) { animation-delay: 0.4s; }
-
-    @keyframes bounce {
-      0%, 80%, 100% { transform: scale(0.7); opacity: 0.5; }
-      40% { transform: scale(1); opacity: 1; }
+      animation: spin 0.8s linear infinite;
+      will-change: transform;
+      flex-shrink: 0;
     }
 
     /* ── Search status chip ── */
@@ -255,6 +276,7 @@
       border-top-color: var(--accent);
       border-radius: 50%;
       animation: spin 0.6s linear infinite;
+      will-change: transform;
       flex-shrink: 0;
     }
 
@@ -454,6 +476,11 @@
   </div>
 </header>
 
+<div id="statusBar">
+  <div class="bar-spinner"></div>
+  <span id="statusText">Thinking…</span>
+</div>
+
 <div id="chat">
   <div class="messages" id="messages">
     <div class="welcome" id="welcome">
@@ -482,6 +509,8 @@
   // ── Config ──────────────────────────────────────────────────────────────
   marked.setOptions({ breaks: true, gfm: true });
 
+  const statusBar   = document.getElementById('statusBar');
+  const statusText  = document.getElementById('statusText');
   const messagesEl  = document.getElementById('messages');
   const inputEl     = document.getElementById('input');
   const sendBtn     = document.getElementById('sendBtn');
@@ -647,10 +676,10 @@
     if (text) userHtml += escapeHtml(text);
     addMessage('user', userHtml);
 
-    setStreaming(true);
+    setStreaming(true, 'Thinking…');
 
     // Thinking indicator
-    let thinkingEl = addStatusChip('thinking', '<span></span><span></span><span></span>');
+    let thinkingEl = addStatusChip('thinking', '<div class="t-spinner"></div> Thinking…');
 
     let assistantBubble = null;
     let rawContent = '';
@@ -680,13 +709,19 @@
           if (!line.startsWith('data: ')) continue;
           let event;
           try { event = JSON.parse(line.slice(6)); } catch { continue; }
+          if (event.type !== 'token') console.log('[SSE]', event.type, event);
           handleEvent(event);
         }
       }
     } catch (err) {
+      console.error('[SSE] stream error:', err);
       removeThinking();
       addStatusChip('error-msg', `❌ ${escapeHtml(err.message)}`);
     } finally {
+      if (assistantBubble || thinkingEl) {
+        console.warn('[SSE] stream closed without done/error event');
+      }
+      removeThinking();  // clean up if stream ended without a done/error event
       setStreaming(false);
     }
 
@@ -695,26 +730,28 @@
 
         case 'thinking':
           if (!thinkingEl) {
-            thinkingEl = addStatusChip('thinking', '<span></span><span></span><span></span>');
+            thinkingEl = addStatusChip('thinking', '<div class="t-spinner"></div> Thinking…');
           }
           break;
 
         case 'token':
           removeThinking();
+          setStatus('Writing…');
           if (!assistantBubble) {
             assistantBubble = addMessage('assistant', '').parentElement.querySelector('.bubble');
             rawContent = '';
           }
           rawContent += event.content;
           assistantBubble.innerHTML =
-            marked.parse(rawContent) + '<span class="cursor"></span>';
+            renderMarkdown(rawContent) + '<span class="cursor"></span>';
           scrollToBottom();
           break;
 
         case 'search_start':
           removeThinking();
+          setStatus(`Searching: ${event.query}`);
           if (assistantBubble) {
-            assistantBubble.innerHTML = marked.parse(rawContent);
+            assistantBubble.innerHTML = renderMarkdown(rawContent);
             assistantBubble = null;
             rawContent = '';
           }
@@ -725,6 +762,7 @@
           break;
 
         case 'search_done':
+          setStatus('Thinking…');
           if (currentSearchChip) {
             const icon = event.count > 0 ? '✅' : '⚠️';
             const label = event.count > 0
@@ -734,11 +772,12 @@
               `${icon} ${label} for <strong>${escapeHtml(event.query)}</strong>`;
             currentSearchChip = null;
           }
-          thinkingEl = addStatusChip('thinking', '<span></span><span></span><span></span>');
+          thinkingEl = addStatusChip('thinking', '<div class="t-spinner"></div> Thinking…');
           break;
 
         case 'rag_indexing':
           removeThinking();
+          setStatus(`Indexing: ${event.name}`);
           currentSearchChip = addStatusChip(
             'search-status',
             `<span class="spinner"></span> Indexing: <strong>${escapeHtml(event.name)}</strong>`
@@ -753,8 +792,11 @@
           }
           ragDocuments.set(event.name, event.chunks);
           renderRagDocs();
-          thinkingEl = addStatusChip('thinking', '<span></span><span></span><span></span>');
+          thinkingEl = addStatusChip('thinking', '<div class="t-spinner"></div> Thinking…');
           break;
+
+        case 'heartbeat':
+          break; // keep-alive: no UI action needed
 
         case 'warning':
           addStatusChip('warning-msg', `⚠️ ${escapeHtml(event.message)}`);
@@ -763,16 +805,20 @@
         case 'done':
           removeThinking();
           if (assistantBubble) {
-            assistantBubble.innerHTML = marked.parse(rawContent);
+            assistantBubble.innerHTML = renderMarkdown(rawContent);
             assistantBubble = null;
+          } else if (event.content) {
+            // tokens weren't streamed — render from done payload instead
+            const b = addMessage('assistant', renderMarkdown(event.content));
           }
+          rawContent = '';
           scrollToBottom();
           break;
 
         case 'error':
           removeThinking();
           if (assistantBubble) {
-            assistantBubble.innerHTML = marked.parse(rawContent);
+            assistantBubble.innerHTML = renderMarkdown(rawContent);
             assistantBubble = null;
           }
           addStatusChip('error-msg', `❌ ${escapeHtml(event.message)}`);
@@ -788,11 +834,21 @@
     }
   }
 
-  function setStreaming(val) {
+  function setStreaming(val, label) {
     isStreaming = val;
     sendBtn.disabled = val;
     inputEl.disabled = val;
     attachBtn.disabled = val;
+    statusBar.style.display = val ? 'flex' : 'none';
+    if (val && label) statusText.textContent = label;
+  }
+
+  function setStatus(label) {
+    statusText.textContent = label;
+  }
+
+  function renderMarkdown(text) {
+    try { return marked.parse(text); } catch { return `<pre>${escapeHtml(text)}</pre>`; }
   }
 
   function escapeHtml(str) {

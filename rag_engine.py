@@ -174,9 +174,25 @@ class RagEngine:
         """Load the CrossEncoder model (thread-safe, called once)."""
         with self._reranker_lock:
             if self._reranker is None:
+                import contextlib, io, os
                 from sentence_transformers import CrossEncoder
                 logger.info(f"Loading reranker: {RERANK_MODEL}")
-                self._reranker = CrossEncoder(RERANK_MODEL)
+                # Try loading from local cache silently (model already downloaded).
+                # If cache is missing (fresh install), fall back to online download.
+                orig = os.environ.get("HF_HUB_OFFLINE")
+                os.environ["HF_HUB_OFFLINE"] = "1"
+                try:
+                    with contextlib.redirect_stdout(io.StringIO()), \
+                         contextlib.redirect_stderr(io.StringIO()):
+                        self._reranker = CrossEncoder(RERANK_MODEL)
+                except Exception:
+                    # Not cached yet — download it (output visible so user sees progress)
+                    if orig is None:
+                        del os.environ["HF_HUB_OFFLINE"]
+                    else:
+                        os.environ["HF_HUB_OFFLINE"] = orig
+                    logger.info(f"Downloading reranker model (first run): {RERANK_MODEL}")
+                    self._reranker = CrossEncoder(RERANK_MODEL)
                 logger.info("Reranker ready")
 
     def _get_reranker(self):
