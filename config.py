@@ -9,7 +9,7 @@ MAX_TOOL_STEPS = 5   # max tool calls per user turn before giving up
 MAX_RETRIES = 3      # API-level error retries per model call
 
 # Search settings
-USE_NATIVE_SEARCH = True  # Try Ollama native first, fallback to DuckDuckGo
+USE_NATIVE_SEARCH = False  # Ollama native search requires a paid subscription; use DuckDuckGo
 SEARCH_TIMEOUT = 30
 
 # Display settings
