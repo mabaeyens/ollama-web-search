@@ -269,6 +269,12 @@
       align-self: flex-start;
     }
 
+    .search-status.clickable {
+      cursor: pointer;
+      user-select: none;
+    }
+    .search-status.clickable:hover { filter: brightness(0.95); }
+
     .search-status .spinner {
       width: 10px;
       height: 10px;
@@ -279,6 +285,30 @@
       will-change: transform;
       flex-shrink: 0;
     }
+
+    /* ── Sources list (collapsible under search chip) ── */
+    .sources-list {
+      display: none;
+      flex-direction: column;
+      gap: 3px;
+      margin-top: 4px;
+      padding: 6px 10px;
+      background: var(--search-bg);
+      border: 1px solid var(--search-border);
+      border-radius: var(--radius-sm);
+      align-self: flex-start;
+      max-width: 480px;
+    }
+    .sources-list.open { display: flex; }
+    .sources-list a {
+      font-size: 12px;
+      color: var(--search-text);
+      text-decoration: none;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sources-list a:hover { text-decoration: underline; }
 
     @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -757,7 +787,7 @@
           );
           break;
 
-        case 'search_done':
+        case 'search_done': {
           setStatus('Thinking…');
           if (currentSearchChip) {
             const icon = event.count > 0 ? '✅' : '⚠️';
@@ -765,11 +795,39 @@
               ? `Found ${event.count} result${event.count !== 1 ? 's' : ''}`
               : 'No results';
             currentSearchChip.innerHTML =
-              `${icon} ${label} for <strong>${escapeHtml(event.query)}</strong>`;
+              `${icon} ${label} for <strong>${escapeHtml(event.query)}</strong> ▾`;
+
+            if (event.results && event.results.length > 0) {
+              currentSearchChip.classList.add('clickable');
+
+              // Build collapsible sources list as sibling inside the same .message wrapper
+              const wrapper = currentSearchChip.closest('.message');
+              const sourcesList = document.createElement('div');
+              sourcesList.className = 'sources-list';
+              event.results.forEach(r => {
+                const a = document.createElement('a');
+                a.href = r.url;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.textContent = r.title || r.url;
+                a.title = r.url;
+                sourcesList.appendChild(a);
+              });
+              wrapper.appendChild(sourcesList);
+
+              currentSearchChip.addEventListener('click', () => {
+                sourcesList.classList.toggle('open');
+                const open = sourcesList.classList.contains('open');
+                currentSearchChip.innerHTML =
+                  `${icon} ${label} for <strong>${escapeHtml(event.query)}</strong> ${open ? '▴' : '▾'}`;
+              });
+            }
+
             currentSearchChip = null;
           }
           thinkingEl = addStatusChip('thinking', '<div class="t-spinner"></div> Thinking…');
           break;
+        }
 
         case 'fetch_start': {
           removeThinking();
@@ -782,16 +840,17 @@
           break;
         }
 
-        case 'fetch_done':
+        case 'fetch_done': {
           setStatus('Thinking…');
           if (currentSearchChip) {
-            const shortUrl = (() => { try { return new URL(event.url).hostname; } catch { return event.url; } })();
+            const hostname = (() => { try { return new URL(event.url).hostname; } catch { return event.url; } })();
             currentSearchChip.innerHTML =
-              `✅ Read ${(event.chars / 1000).toFixed(1)}k chars — <strong>${escapeHtml(shortUrl)}</strong>`;
+              `✅ Read ${(event.chars / 1000).toFixed(1)}k chars — <a href="${escapeHtml(event.url)}" target="_blank" rel="noopener noreferrer" style="color:inherit;font-weight:600">${escapeHtml(hostname)}</a>`;
             currentSearchChip = null;
           }
           thinkingEl = addStatusChip('thinking', '<div class="t-spinner"></div> Thinking…');
           break;
+        }
 
         case 'rag_indexing':
           removeThinking();
