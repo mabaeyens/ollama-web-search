@@ -103,9 +103,12 @@ async def chat(
                 continue
             if event is None:
                 break
-            # Strip large fields the browser doesn't use
+            # Strip snippets — browser only needs title + url for the sources list
             if event.get("type") == "search_done":
-                event = {k: v for k, v in event.items() if k != "results"}
+                event = {**event, "results": [
+                    {"title": r["title"], "url": r["url"]}
+                    for r in event.get("results", [])
+                ]}
             logger.debug("SSE → %s", event.get("type"))
             yield {"data": json.dumps(event)}
 
