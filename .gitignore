@@ -45,3 +45,6 @@ Thumbs.db
 
 # Claude Code local settings
 .claude/
+
+# Local collaboration notes
+COLLABORATION_NOTES.md
