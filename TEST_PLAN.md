@@ -46,10 +46,10 @@ Test cases are grouped by feature area. Each case lists the action, expected res
 
 | # | Action | Expected |
 |---|--------|----------|
-| 4.1 | While a response is streaming, observe Send button | Button is disabled (dimmed) |
+| 4.1 | While a response is streaming, observe Send button | Send button hidden; red Stop button visible in its place |
 | 4.2 | While streaming, observe textarea | Disabled; cannot type |
 | 4.3 | While streaming, observe paperclip button | Disabled |
-| 4.4 | After response completes | Send button and textarea re-enabled |
+| 4.4 | After response completes | Stop button hidden; Send button and textarea re-enabled |
 
 ---
 
@@ -111,7 +111,7 @@ Test cases are grouped by feature area. Each case lists the action, expected res
 
 ---
 
-## 11. Phase 3 — RAG *(to be tested after implementation)*
+## 11. RAG (large document retrieval)
 
 > **Test documents needed:**
 > - `small.pdf` — a text-based PDF under 80k chars (e.g. a 5-page article)
@@ -165,3 +165,32 @@ Test cases are grouped by feature area. Each case lists the action, expected res
 | 11.18 | Attach `scanned.pdf` | Warning chip: scanned PDF, no text extracted; no indexing attempted |
 | 11.19 | Attach `small.pdf` (under 80k chars) | Still goes through RAG (PDFs always use RAG); indexing chip shown |
 | 11.20 | Index enough documents to exceed the chunk threshold | Warning chip recommending the user unload documents |
+
+---
+
+## 12. Clickable sources and fetch chips
+
+| # | Action | Expected |
+|---|--------|----------|
+| 12.1 | Ask a current-events question that triggers a search | After search completes, a sources list appears below the search chip with bulleted links |
+| 12.2 | Observe sources list default state | List is expanded (open) by default; ▴ indicator on the chip |
+| 12.3 | Click the search chip | Sources list collapses; indicator changes to ▾ |
+| 12.4 | Click the chip again | Sources list re-expands; indicator returns to ▴ |
+| 12.5 | Click a link in the sources list | Opens the source URL in a new browser tab |
+| 12.6 | Ask a question where the model fetches a page (`fetch_url`) | A "Reading: hostname" chip with spinner appears, then updates to "✅ Read N.Nk chars — hostname" with a clickable link |
+| 12.7 | Click the hostname link in the fetch chip | Opens the fetched URL in a new tab |
+| 12.8 | Ask a question requiring multiple searches or fetches | Each search and fetch produces its own chip; all remain visible after the response |
+
+---
+
+## 13. Stop button
+
+| # | Action | Expected |
+|---|--------|----------|
+| 13.1 | Send any message; observe footer while streaming | Send button hidden; red Stop button visible in its place |
+| 13.2 | After response completes | Stop button hidden; Send button returns |
+| 13.3 | Send a message; click Stop during the thinking phase | Response aborts; thinking indicator removed; Stop disappears and Send returns |
+| 13.4 | Send a message; click Stop while tokens are streaming | Streaming halts mid-sentence; partial text remains visible; Send re-enabled |
+| 13.5 | Send a message; click Stop while a search chip is spinning | Search halts; chip may remain; Send re-enabled |
+| 13.6 | After stopping, send a new message | Conversation continues normally; model has no memory of the cancelled turn |
+| 13.7 | After stopping, send a follow-up that references the cancelled turn | Model has no context from the aborted turn (history was rolled back) |

@@ -64,6 +64,7 @@ python server.py
 - Search chips expand to show clickable source links; fetch chips link directly to the fetched page
 - Green Documents panel showing RAG-indexed files with per-doc remove
 - Status bar showing current operation (Thinking / Searching / Reading / Indexing)
+- **Stop button** — aborts the current response mid-stream; history rolls back as if the turn never happened
 - Verbose toggle and conversation reset in the header
 - Enter to send, Shift+Enter for newline
 
@@ -84,11 +85,12 @@ RAG documents persist in the session index across turns — no need to re-attach
 All model, search, and fetch calls are mocked — no Ollama instance needed to run tests.
 
 ```bash
-uv run pytest                                              # all tests (10 tests)
+uv run pytest                                              # all tests (14 tests)
 uv run pytest tests/test_queries.py::test_toggle_verbose  # single test
+uv run pytest tests/test_cancel.py                        # cancel/stop tests only
 ```
 
-Tests cover: search trigger behaviour, `fetch_url` dispatch, Gemma4 intermediate-chunk tool calls (`accumulated_tool_calls`), RAG threshold bypass for same-turn attachments, verbose toggle, conversation reset.
+Tests cover: search trigger behaviour, `fetch_url` dispatch, Gemma4 intermediate-chunk tool calls (`accumulated_tool_calls`), RAG threshold bypass for same-turn attachments, verbose toggle, conversation reset, stop/cancel endpoint, event stream abort, history rollback on cancel.
 
 ## Configuration
 

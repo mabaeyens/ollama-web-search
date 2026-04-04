@@ -476,6 +476,21 @@
     #sendBtn:disabled { opacity: 0.4; cursor: default; }
     #sendBtn:not(:disabled):hover { opacity: 0.85; }
 
+    #stopBtn {
+      background: #dc2626;
+      color: white;
+      border: none;
+      border-radius: var(--radius);
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      flex-shrink: 0;
+      display: none;
+      transition: opacity 0.15s;
+    }
+    #stopBtn:hover { opacity: 0.85; }
+
     /* ── Welcome state ── */
     .welcome {
       text-align: center;
@@ -529,6 +544,7 @@
         accept=".pdf,.html,.htm,.txt,.md,.py,.js,.ts,.json,.csv,.png,.jpg,.jpeg,.gif,.webp">
       <textarea id="input" placeholder="Ask anything… (Enter to send, Shift+Enter for newline)" rows="1"></textarea>
       <button id="sendBtn">Send</button>
+      <button id="stopBtn">Stop</button>
     </div>
   </div>
 </footer>
@@ -550,8 +566,11 @@
   const fileInput   = document.getElementById('fileInput');
   const fileChipsEl = document.getElementById('fileChips');
   const ragDocsEl   = document.getElementById('ragDocs');
+  const stopBtn     = document.getElementById('stopBtn');
 
   let isStreaming = false;
+  let activeReader = null;
+  let wasCancelled = false;
   let stagedFiles = [];    // File objects staged for the next send
   let ragDocuments = new Map(); // name → chunk count, persists across turns
 
@@ -586,6 +605,13 @@
     welcomeEl.style.display = '';
     ragDocuments.clear();
     renderRagDocs();
+  });
+
+  // ── Stop ─────────────────────────────────────────────────────────────────
+  stopBtn.addEventListener('click', async () => {
+    wasCancelled = true;
+    try { await fetch('/cancel', { method: 'POST' }); } catch (e) { /* ignore */ }
+    if (activeReader) { activeReader.cancel(); activeReader = null; }
   });
 
   // ── Verbose toggle ────────────────────────────────────────────────────────
@@ -722,6 +748,8 @@
       const response = await fetch('/chat', { method: 'POST', body: form });
 
       const reader = response.body.getReader();
+      activeReader = reader;
+      wasCancelled = false;
       const decoder = new TextDecoder();
       let buffer = '';
 
@@ -741,10 +769,13 @@
         }
       }
     } catch (err) {
-      console.error('[SSE] stream error:', err);
-      removeThinking();
-      addStatusChip('error-msg', `❌ ${escapeHtml(err.message)}`);
+      if (!wasCancelled) {
+        console.error('[SSE] stream error:', err);
+        removeThinking();
+        addStatusChip('error-msg', `❌ ${escapeHtml(err.message)}`);
+      }
     } finally {
+      activeReader = null;
       removeThinking();  // clean up if stream ended without a done/error event
       setStreaming(false);
     }
@@ -795,8 +826,9 @@
             const label = event.count > 0
               ? `Found ${event.count} result${event.count !== 1 ? 's' : ''}`
               : 'No results';
+            const arrow = `<span style="font-size:16px;line-height:1;margin-left:2px">▴</span>`;
             chip.innerHTML =
-              `${icon} ${label} for <strong>${escapeHtml(event.query)}</strong> ▴`;
+              `${icon} ${label} for <strong>${escapeHtml(event.query)}</strong> ${arrow}`;
 
             if (event.results && event.results.length > 0) {
               chip.classList.add('clickable');
@@ -818,14 +850,12 @@
               sourcesList.classList.add('open');  // expanded by default
               wrapper.appendChild(sourcesList);
 
-              chip.innerHTML =
-                `${icon} ${label} for <strong>${escapeHtml(event.query)}</strong> ▴`;
-
               chip.addEventListener('click', () => {
                 sourcesList.classList.toggle('open');
                 const open = sourcesList.classList.contains('open');
+                const toggleArrow = `<span style="font-size:16px;line-height:1;margin-left:2px">${open ? '▴' : '▾'}</span>`;
                 chip.innerHTML =
-                  `${icon} ${label} for <strong>${escapeHtml(event.query)}</strong> ${open ? '▴' : '▾'}`;
+                  `${icon} ${label} for <strong>${escapeHtml(event.query)}</strong> ${toggleArrow}`;
               });
             }
           }
@@ -917,7 +947,8 @@
 
   function setStreaming(val, label) {
     isStreaming = val;
-    sendBtn.disabled = val;
+    sendBtn.style.display = val ? 'none' : '';
+    stopBtn.style.display = val ? 'inline-block' : 'none';
     inputEl.disabled = val;
     attachBtn.disabled = val;
     statusBar.style.display = val ? 'flex' : 'none';
