@@ -4,7 +4,7 @@ A local AI assistant powered by **Gemma 4:26b** and **Ollama** with autonomous w
 
 ## Features
 
-- **Autonomous Search**: Model decides when to search based on query type (ReAct pattern)
+- **Autonomous Search**: Model searches the web and fetches full page content when snippets aren't enough
 - **Streaming responses**: Tokens buffered and rendered as formatted markdown
 - **Two interfaces**: Rich CLI and local web UI (FastAPI + SSE)
 - **File attachments**: PDFs (RAG), HTML, images (multimodal), text/code files
