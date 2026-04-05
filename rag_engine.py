@@ -30,6 +30,11 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
+# nomic-embed-text context is 8192 tokens.  Normal 400-word chunks are ~2 400 chars
+# and never come close.  This cap only fires for pathological content (e.g. binary
+# files decoded as text) where a single "word" can be thousands of bytes long.
+_EMBED_CHAR_LIMIT = 4096
+
 
 class RagEngine:
     """In-memory RAG index for a single chat session."""
@@ -159,7 +164,13 @@ class RagEngine:
         chunks, start, idx = [], 0, 0
         while start < len(words):
             end = min(start + RAG_CHUNK_SIZE, len(words))
-            chunks.append({"text": " ".join(words[start:end]), "idx": idx})
+            chunk_text = " ".join(words[start:end])
+            # Hard cap: protects the embedding model from binary garbage where
+            # "words" are raw bytes (no spaces) and a 400-word chunk can be
+            # orders of magnitude larger than the model's token limit.
+            if len(chunk_text) > _EMBED_CHAR_LIMIT:
+                chunk_text = chunk_text[:_EMBED_CHAR_LIMIT]
+            chunks.append({"text": chunk_text, "idx": idx})
             if end == len(words):
                 break
             start += RAG_CHUNK_SIZE - RAG_CHUNK_OVERLAP
