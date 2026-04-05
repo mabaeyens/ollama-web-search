@@ -168,29 +168,77 @@ Test cases are grouped by feature area. Each case lists the action, expected res
 
 ---
 
-## 12. Clickable sources and fetch chips
+## 12. RAG chunk injection panel
+
+> **Setup:** use the same `large.pdf` from section 11. The panel only appears when the RAG index is non-empty and the model call completes (not during streaming).
+
+### 12a. Panel appearance
 
 | # | Action | Expected |
 |---|--------|----------|
-| 12.1 | Ask a current-events question that triggers a search | After search completes, a sources list appears below the search chip with bulleted links |
-| 12.2 | Observe sources list default state | List is expanded (open) by default; ▴ indicator on the chip |
-| 12.3 | Click the search chip | Sources list collapses; indicator changes to ▾ |
-| 12.4 | Click the chip again | Sources list re-expands; indicator returns to ▴ |
-| 12.5 | Click a link in the sources list | Opens the source URL in a new browser tab |
-| 12.6 | Ask a question where the model fetches a page (`fetch_url`) | A "Reading: hostname" chip with spinner appears, then updates to "✅ Read N.Nk chars — hostname" with a clickable link |
-| 12.7 | Click the hostname link in the fetch chip | Opens the fetched URL in a new tab |
-| 12.8 | Ask a question requiring multiple searches or fetches | Each search and fetch produces its own chip; all remain visible after the response |
+| 12.1 | Attach a PDF; ask a specific question about its content | Below the assistant bubble, a green "📚 N document section(s) used ▴" chip appears |
+| 12.2 | Observe chip position | Panel sits below the answer bubble, not inside it, and not above it |
+| 12.3 | Observe chip state by default | Expanded (open); source rows visible immediately without clicking |
+| 12.4 | Observe each row in the expanded list | Each row shows: document filename in bold, CrossEncoder score (e.g. `· score: 1.42`), and italic preview text |
+| 12.5 | Ask a question unrelated to any indexed document | No RAG panel appears (reranker filtered all chunks; `rag_context` event not emitted) |
+
+### 12b. Collapse / expand
+
+| # | Action | Expected |
+|---|--------|----------|
+| 12.6 | Click the green chip | Panel collapses; arrow changes from ▴ to ▾ |
+| 12.7 | Click the chip again | Panel re-expands; arrow returns to ▴ |
+| 12.8 | Scroll the chat while panel is collapsed | Chip stays collapsed (state not reset by scroll) |
+
+### 12c. Multiple turns
+
+| # | Action | Expected |
+|---|--------|----------|
+| 12.9 | Ask a second question about the same document (no re-attach) | Second answer also shows a RAG panel with its own chunks (may differ from turn 1) |
+| 12.10 | Compare chunk previews across two turns on different topics | Different source chunks surfaced — confirms per-question retrieval, not a cached result |
+| 12.11 | Collapse the panel from turn 1; send a new message | Turn 1 panel remains collapsed; turn 2 panel starts expanded independently |
+
+### 12d. Score and content accuracy
+
+| # | Action | Expected |
+|---|--------|----------|
+| 12.12 | Observe scores in the panel for a highly relevant question | Scores are positive and > 0.0; higher-scoring chunks ranked first |
+| 12.13 | Read the preview text for the top chunk | Preview text is recognisably relevant to the question asked |
+| 12.14 | Ask a meta-instruction query ("Summarise this") immediately after attaching a PDF | RAG panel appears (score threshold bypassed for same-turn attach); chunks shown even if scores are low |
+
+### 12e. Multi-document index
+
+| # | Action | Expected |
+|---|--------|----------|
+| 12.15 | Index two PDFs on different topics; ask about topic A | Panel shows chunks only from document A (or mostly A by score) |
+| 12.16 | Ask about topic B | Panel shows chunks from document B |
+| 12.17 | Remove document A via the Documents panel; ask about topic A | No RAG panel (or empty panel) — chunks from A no longer in index |
 
 ---
 
-## 13. Stop button
+## 13. Clickable sources and fetch chips
 
 | # | Action | Expected |
 |---|--------|----------|
-| 13.1 | Send any message; observe footer while streaming | Send button hidden; red Stop button visible in its place |
-| 13.2 | After response completes | Stop button hidden; Send button returns |
-| 13.3 | Send a message; click Stop during the thinking phase | Response aborts; thinking indicator removed; Stop disappears and Send returns |
-| 13.4 | Send a message; click Stop while tokens are streaming | Streaming halts mid-sentence; partial text remains visible; Send re-enabled |
-| 13.5 | Send a message; click Stop while a search chip is spinning | Search halts; chip may remain; Send re-enabled |
-| 13.6 | After stopping, send a new message | Conversation continues normally; model has no memory of the cancelled turn |
-| 13.7 | After stopping, send a follow-up that references the cancelled turn | Model has no context from the aborted turn (history was rolled back) |
+| 13.1 | Ask a current-events question that triggers a search | After search completes, a sources list appears below the search chip with bulleted links |
+| 13.2 | Observe sources list default state | List is expanded (open) by default; ▴ indicator on the chip |
+| 13.3 | Click the search chip | Sources list collapses; indicator changes to ▾ |
+| 13.4 | Click the chip again | Sources list re-expands; indicator returns to ▴ |
+| 13.5 | Click a link in the sources list | Opens the source URL in a new browser tab |
+| 13.6 | Ask a question where the model fetches a page (`fetch_url`) | A "Reading: hostname" chip with spinner appears, then updates to "✅ Read N.Nk chars — hostname" with a clickable link |
+| 13.7 | Click the hostname link in the fetch chip | Opens the fetched URL in a new tab |
+| 13.8 | Ask a question requiring multiple searches or fetches | Each search and fetch produces its own chip; all remain visible after the response |
+
+---
+
+## 14. Stop button
+
+| # | Action | Expected |
+|---|--------|----------|
+| 14.1 | Send any message; observe footer while streaming | Send button hidden; red Stop button visible in its place |
+| 14.2 | After response completes | Stop button hidden; Send button returns |
+| 14.3 | Send a message; click Stop during the thinking phase | Response aborts; thinking indicator removed; Stop disappears and Send returns |
+| 14.4 | Send a message; click Stop while tokens are streaming | Streaming halts mid-sentence; partial text remains visible; Send re-enabled |
+| 14.5 | Send a message; click Stop while a search chip is spinning | Search halts; chip may remain; Send re-enabled |
+| 14.6 | After stopping, send a new message | Conversation continues normally; model has no memory of the cancelled turn |
+| 14.7 | After stopping, send a follow-up that references the cancelled turn | Model has no context from the aborted turn (history was rolled back) |
