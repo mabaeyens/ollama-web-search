@@ -1272,7 +1272,20 @@
     return chip;
   }
 
+  // Auto-scroll unless the user has scrolled up to read earlier content.
+  // "pinned" = user is within 80px of the bottom → keep following the stream.
+  let scrollPinned = true;
+
+  (function initScrollTracking() {
+    const chat = document.getElementById('chat');
+    chat.addEventListener('scroll', () => {
+      const distFromBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
+      scrollPinned = distFromBottom < 80;
+    }, { passive: true });
+  })();
+
   function scrollToBottom() {
+    if (!scrollPinned) return;
     const chat = document.getElementById('chat');
     chat.scrollTop = chat.scrollHeight;
   }
@@ -1282,6 +1295,7 @@
     const text = inputEl.value.trim();
     if (!text && stagedFiles.length === 0) return;
 
+    scrollPinned = true;   // re-pin for the new response
     inputEl.value = '';
     inputEl.style.height = 'auto';
 
@@ -1528,6 +1542,7 @@
             pendingRagContext = null;
           }
           rawContent = '';
+          scrollPinned = true;   // re-pin after stream ends
           scrollToBottom();
           break;
         }
