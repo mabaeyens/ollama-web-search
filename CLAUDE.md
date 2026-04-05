@@ -18,6 +18,10 @@ uv sync
 ollama pull gemma4:26b
 ollama pull nomic-embed-text   # used for RAG embeddings
 
+# Start the Ollama daemon (required before running CLI or web server)
+# macOS: Ollama.app in menu bar starts it automatically; or run manually:
+ollama serve
+
 # Run the CLI
 python main.py
 

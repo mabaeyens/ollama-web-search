@@ -31,15 +31,22 @@ uv sync
 
 ## Running
 
-**CLI:**
+**1. Start the Ollama server** (if not already running as a background service):
+```bash
+ollama serve
+```
+
+**2. CLI:**
 ```bash
 python main.py
 ```
 
-**Web interface** — open `http://localhost:8000` in your browser:
+**2. Web interface** — open `http://localhost:8000` in your browser:
 ```bash
 python server.py
 ```
+
+> `server.py` and `main.py` do **not** start Ollama automatically — they will fail with a connection error if `ollama serve` is not running first.
 
 ## CLI Commands
 
@@ -85,7 +92,7 @@ RAG documents persist in the session index across turns — no need to re-attach
 All model, search, and fetch calls are mocked — no Ollama instance needed to run tests.
 
 ```bash
-uv run pytest                                              # all tests (14 tests)
+uv run pytest                                              # all tests (16 tests)
 uv run pytest tests/test_queries.py::test_toggle_verbose  # single test
 uv run pytest tests/test_cancel.py                        # cancel/stop tests only
 ```
@@ -101,7 +108,7 @@ All settings are in `config.py`:
 | `MODEL_NAME` | `gemma4:26b` | Ollama chat model |
 | `EMBED_MODEL` | `nomic-embed-text` | Ollama embedding model for RAG |
 | `RERANK_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | CrossEncoder reranker |
-| `USE_NATIVE_SEARCH` | `False` | Disabled — requires paid Ollama subscription |
+| `USE_NATIVE_SEARCH` | `False` | Disabled — Ollama native search is free-tier but requires a phone-verified account with no privacy guarantees; DuckDuckGo used instead |
 | `MAX_SEARCH_RESULTS` | `5` | Results per web search |
 | `MAX_TOOL_STEPS` | `5` | Max tool calls per turn |
 | `MAX_RETRIES` | `3` | API error retries per call |
