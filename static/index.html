@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ollama Search Tool</title>
   <script src="/static/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -1589,28 +1592,45 @@
     statusText.textContent = label;
   }
 
-  // Replace common LaTeX inline math with Unicode before markdown parsing.
-  // marked.js has no LaTeX support, so $\rightarrow$ etc. render as literal text.
-  const LATEX_MAP = {
-    'rightarrow': '→', 'Rightarrow': '⇒',
-    'leftarrow': '←', 'Leftarrow': '⇐',
-    'leftrightarrow': '↔', 'Leftrightarrow': '⇔',
-    'uparrow': '↑', 'downarrow': '↓',
-    'to': '→', 'gets': '←',
-    'times': '×', 'div': '÷', 'pm': '±',
-    'leq': '≤', 'geq': '≥', 'neq': '≠', 'approx': '≈',
-    'infty': '∞', 'cdot': '·', 'ldots': '…',
-    'alpha': 'α', 'beta': 'β', 'gamma': 'γ', 'delta': 'δ',
-    'theta': 'θ', 'lambda': 'λ', 'mu': 'μ', 'pi': 'π',
-    'sigma': 'σ', 'phi': 'φ', 'omega': 'ω',
-  };
-  function preprocessLatex(text) {
-    // $\command$ → unicode
-    return text.replace(/\$\\(\w+)\$/g, (_, cmd) => LATEX_MAP[cmd] || `$\\${cmd}$`);
-  }
-
+  // Math rendering with KaTeX.
+  //
+  // Problem: marked.js parses content first, mangling LaTeX — underscores become
+  // <em>, backslashes get escaped, etc.  Fix: extract math blocks into placeholders
+  // BEFORE marked runs, then restore and render them with KaTeX AFTER.
+  //
+  // Supports both display math ($$...$$) and inline math ($...$).
   function renderMarkdown(text) {
-    try { return marked.parse(preprocessLatex(text)); } catch { return `<pre>${escapeHtml(text)}</pre>`; }
+    try {
+      // 1. Protect math blocks from marked.
+      const mathBlocks = [];
+      const protect = src =>
+        src
+          .replace(/\$\$([\s\S]*?)\$\$/g, (m) => { mathBlocks.push(m); return `\x02MATH${mathBlocks.length - 1}\x03`; })
+          .replace(/\$([^\$\n]+?)\$/g,    (m) => { mathBlocks.push(m); return `\x02MATH${mathBlocks.length - 1}\x03`; });
+
+      // 2. Run marked on the protected text.
+      let html = marked.parse(protect(text));
+
+      // 3. Restore math blocks (marked may have HTML-encoded the placeholder chars — handle both).
+      html = html.replace(/[\x02\u0002]MATH(\d+)[\x03\u0003]/g, (_, i) => mathBlocks[+i]);
+
+      // 4. Let KaTeX render all $...$ and $$...$$ in a temp element.
+      if (typeof renderMathInElement !== 'undefined') {
+        const div = document.createElement('div');
+        div.innerHTML = html;
+        renderMathInElement(div, {
+          delimiters: [
+            { left: '$$', right: '$$', display: true  },
+            { left: '$',  right: '$',  display: false },
+          ],
+          throwOnError: false,
+        });
+        return div.innerHTML;
+      }
+      return html;
+    } catch {
+      return `<pre>${escapeHtml(text)}</pre>`;
+    }
   }
 
   function escapeHtml(str) {
