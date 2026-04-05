@@ -153,9 +153,43 @@ When the RAG index is non-empty, `stream_chat()` queries the index on every mess
 
 ---
 
+---
+
+## Phase 4 — RAG Chunk Sourcing
+
+### Goal
+
+When the model answers using RAG context, the user should be able to see which document sections were injected — the source filename, CrossEncoder score, and a text preview. This closes the "black box" problem where the model gives an answer but the user can't verify where it came from.
+
+### Implementation
+
+A new `rag_context` event was added to `ChatOrchestrator.stream_chat()`. It is emitted right before the `done` event whenever `rag_chunks` is non-empty:
+
+```python
+yield {
+    "type": "rag_context",
+    "chunks": [
+        {"source": c["source"], "score": round(c["score"], 2), "preview": c["text"][:150] + "…"}
+        for c in rag_chunks
+    ],
+}
+```
+
+The event is emitted at the end of the turn (after model tokens, before `done`) so the UI can attach it cleanly below the completed answer bubble.
+
+**UI pattern:** In `index.html`, the `rag_context` event is buffered in `pendingRagContext`. The `done` handler consumes it by calling `appendRagContext(chunks, doneWrapper)`, which appends a collapsible chip directly to the assistant message wrapper element (not inside the bubble). The chip reads "📚 N document section(s) used ▴" and is expanded by default; clicking it collapses/expands and toggles the arrow. Each row shows the document name, score, and a 150-char italic preview.
+
+The green color palette (`#f0fdf4 / #86efac / #166534`) was reused from the existing RAG document chips for visual consistency.
+
+### Tests added
+
+- `test_rag_context_event_emitted_when_chunks_retrieved` — mocks `rag_engine.query()` returning 2 chunks, verifies `rag_context` event payload (source, score, preview) and ordering before `done`.
+- `test_rag_context_not_emitted_when_no_chunks` — verifies the event is absent when `query()` returns empty.
+
+---
+
 ## Known limitations
 
 - **Scanned PDFs**: No OCR. The user must provide a text-based PDF or attach individual pages as images.
 - **Image reasoning quality**: Depends entirely on Gemma 4's multimodal capabilities.
 - **RAG index not persisted**: The in-memory index is lost on server restart. Documents must be re-attached each session. A persistent option (ChromaDB `PersistentClient`) is a potential future addition.
-- **No RAG chunk sourcing in UI**: The web UI does not yet show which chunks were used to answer a question. This is tracked in the backlog.

@@ -171,6 +171,18 @@ class ChatOrchestrator:
 
             if not tool_calls:
                 self.conversation_history.append({"role": "assistant", "content": full_content})
+                if rag_chunks:
+                    yield {
+                        "type": "rag_context",
+                        "chunks": [
+                            {
+                                "source": c["source"],
+                                "score": round(c["score"], 2),
+                                "preview": c["text"][:150].rstrip() + ("…" if len(c["text"]) > 150 else ""),
+                            }
+                            for c in rag_chunks
+                        ],
+                    }
                 yield {"type": "done", "content": full_content}
                 return
 

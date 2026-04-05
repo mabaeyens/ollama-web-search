@@ -187,6 +187,48 @@ def test_accumulated_tool_calls_intermediate_chunk(orchestrator):
         assert content == "Found it."
 
 
+def test_rag_context_event_emitted_when_chunks_retrieved(orchestrator):
+    """rag_context event must be yielded before done when RAG chunks are used.
+
+    Payload must include source, score, and preview for each chunk so the UI
+    can render a collapsible 'document sections used' panel below the answer.
+    """
+    fake_chunks = [
+        {"source": "report.pdf", "score": 1.42, "text": "Quarterly revenue grew by 12%."},
+        {"source": "report.pdf", "score": 0.87, "text": "Operating costs remained stable."},
+    ]
+
+    with patch.object(orchestrator, '_call_ollama', return_value=_final_stream("Revenue grew.")), \
+         patch.object(orchestrator.rag_engine, 'query', return_value=fake_chunks), \
+         patch.object(type(orchestrator.rag_engine), 'chunk_count',
+                      new_callable=PropertyMock, return_value=5):
+        events, content = _consume(orchestrator.stream_chat("What was the revenue growth?"))
+
+    rag_ctx = next((e for e in events if e["type"] == "rag_context"), None)
+    assert rag_ctx is not None, "rag_context event not emitted"
+
+    assert len(rag_ctx["chunks"]) == 2
+    first = rag_ctx["chunks"][0]
+    assert first["source"] == "report.pdf"
+    assert first["score"] == 1.42
+    assert "Quarterly revenue" in first["preview"]
+
+    # rag_context must come before done
+    types = [e["type"] for e in events]
+    assert types.index("rag_context") < types.index("done")
+
+
+def test_rag_context_not_emitted_when_no_chunks(orchestrator):
+    """rag_context must not be emitted when RAG returns no chunks (empty index or filtered out)."""
+    with patch.object(orchestrator, '_call_ollama', return_value=_final_stream("Plain answer.")), \
+         patch.object(orchestrator.rag_engine, 'query', return_value=[]), \
+         patch.object(type(orchestrator.rag_engine), 'chunk_count',
+                      new_callable=PropertyMock, return_value=0):
+        events, _ = _consume(orchestrator.stream_chat("What is 2+2?"))
+
+    assert not any(e["type"] == "rag_context" for e in events)
+
+
 def test_rag_score_threshold_bypassed_for_same_turn_attachment(orchestrator):
     """When a RAG file is indexed in the same turn, query() must use score_threshold=-inf.
 
