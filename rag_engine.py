@@ -179,7 +179,11 @@ class RagEngine:
 
     def _embed(self, texts: List[str]) -> List[List[float]]:
         """Batch-embed texts using Ollama (nomic-embed-text)."""
-        response = self._ollama.embed(model=EMBED_MODEL, input=texts)
+        response = self._ollama.embed(
+            model=EMBED_MODEL,
+            input=texts,
+            options={"num_ctx": 2048},  # matches nomic-embed-text training context
+        )
         return response.embeddings
 
     def _load_reranker(self):
