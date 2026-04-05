@@ -180,3 +180,20 @@ def test_genuine_text_with_unknown_extension_processed_as_text(tmp_path):
     assert att["type"] in ("text", "rag")   # small file → text
     assert att["warning"] is None            # no spurious warning
     assert "plain text" in att["content"]
+
+
+def test_binary_file_with_unknown_extension_rejected(tmp_path):
+    """A binary file with an unknown extension (e.g. .qvf) is rejected with a warning."""
+    from file_handler import load_file
+
+    # Build synthetic binary data: ~90% non-UTF-8 bytes, well above the 5% threshold
+    binary_data = bytes(range(256)) * 40  # 10 240 bytes, many invalid UTF-8 sequences
+    p = tmp_path / "dashboard.qvf"
+    p.write_bytes(binary_data)
+
+    att = load_file(str(p))
+    assert att["type"] == "text"
+    assert att["content"] == ""           # nothing injected / indexed
+    assert att["warning"]
+    assert "binary" in att["warning"].lower()
+    assert "dashboard.qvf" in att["warning"]

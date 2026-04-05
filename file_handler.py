@@ -85,10 +85,24 @@ def load_file_bytes(name: str, data: bytes) -> Dict:
             )
             return result
         # Genuine text / code / unknown binary — decode as UTF-8
+        decoded = data.decode('utf-8', errors='replace')
+        # Binary heuristic: if >5% of characters are UTF-8 replacement chars the
+        # file is almost certainly binary (e.g. .qvf, .zip, .bin).  Return a
+        # warning instead of indexing binary garbage into RAG.
+        if decoded and decoded.count('\ufffd') / len(decoded) > 0.05:
+            return {
+                "type": "text",
+                "name": name,
+                "content": "",
+                "warning": (
+                    f"'{name}' appears to be a binary file — cannot extract text. "
+                    "Attach a PDF, image, or plain-text file instead."
+                ),
+            }
         return _guard({
             "type": "text",
             "name": name,
-            "content": data.decode('utf-8', errors='replace'),
+            "content": decoded,
             "warning": None,
         })
 
