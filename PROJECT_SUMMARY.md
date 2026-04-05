@@ -53,6 +53,7 @@ main.py (_render_stream)         server.py (/chat SSE endpoint)
 | `search_done` | `query, count, results` | Search complete |
 | `rag_indexing` | `name` | Document being indexed |
 | `rag_done` | `name, chunks` | Indexing complete |
+| `rag_context` | `chunks` | RAG chunks injected this turn; list of `{source, score, preview}`; emitted before `done` |
 | `warning` | `message` | Non-fatal issue |
 | `done` | `content` | Turn complete |
 | `error` | `message` | Fatal error |
@@ -111,6 +112,10 @@ Model decides dynamically based on system prompt rules (date-aware). No hardcode
   - Auto-index on PDF attach; auto-retrieve on every turn when index non-empty
   - CLI: `/rag-list`, `/rag-remove`; Web: indexing chip, green Documents panel
   - `GET /rag/documents`, `DELETE /rag/documents/{name}` endpoints
+- **Phase 4** — RAG Chunk Sourcing
+  - New `rag_context` event: `{source, score, preview}` per chunk, emitted before `done`
+  - Web UI: collapsible "N document sections used" panel appended below the answer bubble
+  - 2 new unit tests (event emitted / not emitted)
 
 ## 6. File Structure
 
@@ -143,9 +148,9 @@ ollama-web-search/
 
 ## 7. Roadmap
 
-### Phase 4 — Backlog
+### Phase 4 — RAG Chunk Sourcing ✅
 
-- **Show RAG chunks in web UI**: When a response uses RAG, show the source chunks (filename, score) that were injected. UI pattern: collapsible "Sources" section below the assistant bubble. Already tracked in backlog.
+- **Show RAG chunks in web UI**: When a response uses RAG, a collapsible "N document sections used" panel is rendered below the answer bubble. Each entry shows the document name, CrossEncoder score, and a 150-char text preview. Panel is expanded by default; click to collapse. Driven by the new `rag_context` event emitted before `done` in `orchestrator.py`.
 
 ### Phase 5 — Future (not planned)
 
@@ -154,7 +159,7 @@ ollama-web-search/
 
 ## 8. Backlog
 
-- **Show RAG chunks in web UI** — When a response is generated from RAG retrieval, show the source chunks (filename, score) that were injected so the user can verify where the answer came from. UI pattern: collapsible "Sources" section below the assistant bubble.
+_(empty — all items completed)_
 
 ## 9. Notes for Claude Code Context
 

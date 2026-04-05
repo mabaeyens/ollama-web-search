@@ -324,6 +324,39 @@
       align-self: flex-start;
     }
 
+    /* ── RAG context chip (sources used) ── */
+    .rag-context-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #f0fdf4;
+      border: 1px solid #86efac;
+      color: #166534;
+      font-size: 12px;
+      padding: 5px 10px;
+      border-radius: 99px;
+      align-self: flex-start;
+      cursor: pointer;
+      user-select: none;
+    }
+    .rag-context-chip:hover { filter: brightness(0.95); }
+
+    /* ── RAG chunks list (collapsible) ── */
+    .rag-chunks-list {
+      display: none;
+      margin: 4px 0 0 0;
+      padding: 8px 12px;
+      background: #f0fdf4;
+      border: 1px solid #86efac;
+      border-radius: var(--radius-sm);
+      align-self: flex-start;
+      max-width: 560px;
+    }
+    .rag-chunks-list.open { display: flex; flex-direction: column; gap: 8px; }
+    .rag-chunk-item { font-size: 12px; color: #166534; }
+    .rag-chunk-source { font-weight: 600; margin-bottom: 2px; }
+    .rag-chunk-preview { font-style: italic; opacity: 0.75; word-break: break-word; }
+
     /* ── Warning chip ── */
     .warning-msg {
       display: inline-flex;
@@ -573,6 +606,8 @@
   let wasCancelled = false;
   let stagedFiles = [];    // File objects staged for the next send
   let ragDocuments = new Map(); // name → chunk count, persists across turns
+  // Buffered per-turn — set on rag_context event, consumed and appended in done handler
+  let pendingRagContext = null;
 
   // ── Fetch initial status ─────────────────────────────────────────────────
   fetch('/status').then(r => r.json()).then(s => {
@@ -657,6 +692,37 @@
     });
   }
 
+  // ── RAG context panel ─────────────────────────────────────────────────────
+  function appendRagContext(chunks, messageWrapper) {
+    const n = chunks.length;
+    const label = `${n} document section${n !== 1 ? 's' : ''} used`;
+    const arrow = `<span style="font-size:16px;line-height:1;margin-left:2px">▴</span>`;
+
+    const chip = document.createElement('div');
+    chip.className = 'rag-context-chip';
+    chip.innerHTML = `📚 ${label} ${arrow}`;
+
+    const list = document.createElement('div');
+    list.className = 'rag-chunks-list open';
+    chunks.forEach(c => {
+      const item = document.createElement('div');
+      item.className = 'rag-chunk-item';
+      item.innerHTML =
+        `<div class="rag-chunk-source">📄 ${escapeHtml(c.source)} <span style="font-weight:400;opacity:.7">· score: ${c.score.toFixed(2)}</span></div>` +
+        `<div class="rag-chunk-preview">${escapeHtml(c.preview)}</div>`;
+      list.appendChild(item);
+    });
+
+    chip.addEventListener('click', () => {
+      list.classList.toggle('open');
+      const open = list.classList.contains('open');
+      chip.innerHTML = `📚 ${label} <span style="font-size:16px;line-height:1;margin-left:2px">${open ? '▴' : '▾'}</span>`;
+    });
+
+    messageWrapper.appendChild(chip);
+    messageWrapper.appendChild(list);
+  }
+
   function renderFileChips() {
     fileChipsEl.innerHTML = '';
     if (stagedFiles.length === 0) {
@@ -738,6 +804,7 @@
     let assistantBubble = null;
     let rawContent = '';
     let currentSearchChip = null;
+    let pendingRagContext = null; // set by rag_context event, consumed in done handler
 
     try {
       // Use FormData so files can be included
@@ -906,6 +973,11 @@
           thinkingEl = addStatusChip('thinking', '<div class="t-spinner"></div> Thinking…');
           break;
 
+        case 'rag_context':
+          // Buffer chunks; the panel is appended below the answer bubble in 'done'
+          pendingRagContext = event.chunks;
+          break;
+
         case 'heartbeat':
           break; // keep-alive: no UI action needed
 
@@ -913,18 +985,26 @@
           addStatusChip('warning-msg', `⚠️ ${escapeHtml(event.message)}`);
           break;
 
-        case 'done':
+        case 'done': {
           removeThinking();
+          let doneWrapper = null;
           if (assistantBubble) {
+            doneWrapper = assistantBubble.closest('.message');
             assistantBubble.innerHTML = renderMarkdown(rawContent);
             assistantBubble = null;
           } else if (event.content) {
             // tokens weren't streamed — render from done payload instead
             const b = addMessage('assistant', renderMarkdown(event.content));
+            doneWrapper = b.closest('.message');
+          }
+          if (pendingRagContext && doneWrapper) {
+            appendRagContext(pendingRagContext, doneWrapper);
+            pendingRagContext = null;
           }
           rawContent = '';
           scrollToBottom();
           break;
+        }
 
         case 'error':
           removeThinking();
