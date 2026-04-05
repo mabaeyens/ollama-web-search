@@ -1557,6 +1557,19 @@
       ).join('');
     }
     if (text) userHtml += (hasAttachments ? '<br>' : '') + escapeHtml(text);
+
+    // If this is the first message of the conversation, rename it immediately
+    // in the sidebar so the user sees feedback right away (before the LLM title arrives).
+    const isFirstTurn = messagesEl.querySelectorAll('.message').length === 0;
+    if (isFirstTurn && currentConvId) {
+      const label = text || (filesToSend[0]?.name ?? stagedPaths[0] ?? 'New conversation');
+      const shortTitle = label.length > 50 ? label.slice(0, 50) + '…' : label;
+      document.querySelectorAll('.conv-item').forEach(el => {
+        if (el.dataset.id === currentConvId)
+          el.querySelector('.conv-title').textContent = shortTitle;
+      });
+    }
+
     addMessage('user', userHtml);
 
     setStreaming(true, 'Thinking…');
@@ -1761,14 +1774,19 @@
           updateStats(event.input_tokens, event.output_tokens, event.context_pct);
           break;
 
-        case 'title':
-          // Update the sidebar item title without re-fetching the full list
+        case 'title': {
+          // Update the sidebar item title in-place; fall back to a full reload
+          // if the item isn't in the DOM yet (e.g. very first conversation).
+          let titleUpdated = false;
           document.querySelectorAll('.conv-item').forEach(el => {
             if (el.dataset.id === event.conv_id) {
               el.querySelector('.conv-title').textContent = event.title;
+              titleUpdated = true;
             }
           });
+          if (!titleUpdated) loadConvList();
           break;
+        }
 
         case 'compress':
           addStatusChip('warning-msg', `🗜️ ${escapeHtml(event.message)}`);
