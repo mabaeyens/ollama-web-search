@@ -4,10 +4,17 @@ import asyncio
 import json
 import logging
 import os
+import socket
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List
+
+try:
+    from zeroconf import ServiceInfo, Zeroconf as _Zeroconf
+    _HAS_ZEROCONF = True
+except ImportError:
+    _HAS_ZEROCONF = False
 
 import uvicorn
 from fastapi import FastAPI, Form, HTTPException, UploadFile, File
@@ -37,6 +44,18 @@ orchestrator: ChatOrchestrator = None
 cancel_event = threading.Event()
 
 
+def _local_ip() -> str:
+    """Return the primary LAN IP (used for Bonjour advertisement)."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global orchestrator
@@ -50,7 +69,33 @@ async def lifespan(app: FastAPI):
         conv_id = db.create_conversation(orchestrator.model)
         orchestrator.new_conversation(conv_id)
     logger.info(f"Initialized orchestrator with model: {orchestrator.model}, conv: {orchestrator.conv_id}")
+
+    # Advertise on local network via Bonjour so iOS can auto-discover
+    _zeroconf = None
+    _zc_info = None
+    if _HAS_ZEROCONF:
+        try:
+            _zeroconf = _Zeroconf()
+            _zc_info = ServiceInfo(
+                "_ollamasearch._tcp.local.",
+                f"OllamaSearch._ollamasearch._tcp.local.",
+                addresses=[socket.inet_aton(_local_ip())],
+                port=8000,
+                properties={"hostname": socket.gethostname()},
+            )
+            _zeroconf.register_service(_zc_info)
+            logger.info(f"Bonjour: advertising _ollamasearch._tcp on port 8000 ({_local_ip()})")
+        except Exception as e:
+            logger.warning(f"Bonjour advertisement failed: {e}")
+
     yield
+
+    if _zeroconf and _zc_info:
+        try:
+            _zeroconf.unregister_service(_zc_info)
+            _zeroconf.close()
+        except Exception:
+            pass
 
 
 app = FastAPI(title="ollama Search Tool", lifespan=lifespan)
@@ -64,6 +109,12 @@ class VerboseRequest(BaseModel):
 @app.get("/")
 async def index():
     return FileResponse("static/index.html")
+
+
+@app.get("/health")
+async def health():
+    """Liveness probe — used by the macOS native app to know when the server is ready."""
+    return {"status": "ok"}
 
 
 @app.post("/cancel")
