@@ -349,3 +349,63 @@ Mirrors the Claude Code status line (excluding cost). Shows cumulative session t
 | 16.18 | `test_stats_context_pct_bounded` | `context_pct` capped at 100 even when `last_prompt_tokens` exceeds CONTEXT_WINDOW |
 | 16.19 | `test_stats_reset_clears_token_counts` | `reset_conversation()` zeros all three token counters |
 | 16.20 | `test_stats_token_capture_with_real_counts` | When done chunk has `prompt_eval_count=1024` and `eval_count=32`, counters updated correctly and `context_pct` computed from CONTEXT_WINDOW |
+
+---
+
+## 17. Folder browser (replaces manual path input)
+
+The 📂 button now opens a modal folder browser instead of an inline text input. Files with wrong or missing extension (when a filter is set) are shown greyed out and rejected with a warning.
+
+### 17a. Opening and navigating
+
+| # | Action | Expected |
+|---|--------|----------|
+| 17.1 | Click 📂 | Folder browser modal opens; starts in home directory |
+| 17.2 | Click a directory entry (📁) | Browser navigates into that directory; breadcrumb updates |
+| 17.3 | Click any breadcrumb segment | Browser jumps directly to that ancestor directory |
+| 17.4 | Click root `/` in breadcrumb | Browser navigates to filesystem root `/` |
+| 17.5 | Navigate into an unreadable directory | Error message shown inline: "Permission denied: …" |
+| 17.6 | Click outside the modal (overlay) | Modal closes without staging any files |
+| 17.7 | Click ✕ or Cancel | Modal closes without staging any files |
+
+### 17b. Extension filter
+
+| # | Action | Expected |
+|---|--------|----------|
+| 17.8 | Leave extension input blank | All files shown selectable (checkbox visible) |
+| 17.9 | Type `pdf` in the filter | Only `.pdf` files show with checkbox; others greyed out |
+| 17.10 | Type `pdf, txt` | `.pdf` and `.txt` files selectable; rest greyed |
+| 17.11 | Type `.pdf` (with dot) | Same as `pdf` — leading dot is stripped |
+| 17.12 | Type `PDF` (uppercase) | Matches `.pdf` files — comparison is case-insensitive |
+| 17.13 | Clear the filter after setting it | All files become selectable again immediately |
+| 17.14 | Navigate to new folder while filter is active | Filter persists; new listing applies same filter |
+
+### 17c. Rejection warnings
+
+| # | Action | Expected |
+|---|--------|----------|
+| 17.15 | With filter `pdf`, click a `.txt` file | Warning below filter: "⚠️ .txt not allowed — only .pdf"; file not selected |
+| 17.16 | Click a file with no extension (e.g. `Makefile`) when filter is set | Warning: "⚠️ (no extension) not allowed — only …"; file not selected |
+| 17.17 | Warning auto-clears after ~3.5s | Warning text disappears without interaction |
+| 17.18 | Click another rejected file while warning is visible | Warning resets timer; shows new file's extension |
+
+### 17d. Selection and staging
+
+| # | Action | Expected |
+|---|--------|----------|
+| 17.19 | Click a selectable file row (anywhere) | Checkbox toggles; row highlights blue; footer shows "1 file selected" |
+| 17.20 | Select multiple files | "N files selected" count updates; Add button enabled |
+| 17.21 | Deselect a file | Count decrements; if 0 selected, Add button disabled |
+| 17.22 | Click "Add files" | Modal closes; selected paths appear as 📂 chips in input area |
+| 17.23 | Add a path that's already staged | Not duplicated; existing chip still present |
+| 17.24 | Send message after staging paths | Paths sent to server; model receives file content |
+
+### 17e. Automated tests (`test_cancel.py`)
+
+| # | Test | Verifies |
+|---|------|---------|
+| 17.25 | `test_browse_home_directory` | `/browse?path=/tmp` returns 200 with `path` and `entries` |
+| 17.26 | `test_browse_entries_have_required_fields` | Each entry has `name`, `is_dir`, `ext`, `path` |
+| 17.27 | `test_browse_dirs_sorted_before_files` | Directories appear before files in sorted listing |
+| 17.28 | `test_browse_nonexistent_path_returns_error` | Non-existent path returns 4xx error |
+| 17.29 | `test_browse_ext_field_is_lowercase_with_dot` | `.PDF` → `.pdf`, `Makefile` → `""` |

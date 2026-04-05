@@ -68,7 +68,7 @@ python server.py
 
 - Streaming responses with live markdown rendering
 - 📎 upload button — attach files from your machine
-- 📂 path button — load files directly from the server's disk by absolute path (same machine)
+- 📂 folder browser — navigate the server's filesystem, filter by extension, select multiple files; files with wrong or missing extension are shown greyed out with a rejection warning
 - Search chips expand to show clickable source links; fetch chips link directly to the fetched page
 - Green Documents panel showing RAG-indexed files with per-doc remove
 - Status bar showing current operation (Thinking / Searching / Reading / Indexing)
@@ -94,7 +94,7 @@ RAG documents persist in the session index across turns — no need to re-attach
 All model, search, and fetch calls are mocked — no Ollama instance needed to run tests.
 
 ```bash
-uv run pytest                                              # all tests (23 tests)
+uv run pytest                                              # all tests (28 tests)
 uv run pytest tests/test_queries.py::test_toggle_verbose  # single test
 uv run pytest tests/test_cancel.py                        # cancel/stop tests only
 ```

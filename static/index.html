@@ -523,53 +523,146 @@
 
     .path-chip button:hover { color: #1d4ed8; }
 
-    /* Path input row (hidden by default, shown when 📂 clicked) */
-    #pathInputRow {
-      display: none;
+    /* ── Folder browser modal ── */
+    .folder-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 1000;
+      display: flex;
       align-items: center;
-      gap: 6px;
+      justify-content: center;
     }
 
-    #pathInputRow.visible { display: flex; }
-
-    #pathInput {
-      flex: 1;
-      border: 1px solid var(--search-border);
+    .folder-modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 6px 10px;
-      font-size: 13px;
-      font-family: "SF Mono", "Fira Code", monospace;
-      color: var(--text);
-      background: var(--bg);
-      outline: none;
+      width: 600px;
+      max-width: 95vw;
+      height: 70vh;
+      max-height: 600px;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+      overflow: hidden;
     }
 
-    #pathInput:focus { border-color: var(--accent); }
-    #pathInput::placeholder { color: var(--text-muted); font-family: inherit; }
-
-    .btn-path-add {
-      background: var(--accent);
-      color: white;
-      border: none;
-      border-radius: var(--radius-sm);
-      padding: 6px 12px;
-      font-size: 13px;
-      cursor: pointer;
+    .folder-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px 12px;
+      border-bottom: 1px solid var(--border);
       flex-shrink: 0;
     }
-    .btn-path-add:hover { opacity: 0.85; }
 
-    .btn-path-cancel {
-      background: none;
+    .folder-modal-title { font-weight: 600; font-size: 14px; }
+
+    .folder-close {
+      background: none; border: none; cursor: pointer;
+      color: var(--text-muted); font-size: 16px; padding: 0; line-height: 1;
+    }
+    .folder-close:hover { color: var(--text); }
+
+    .folder-path-bar {
+      padding: 7px 16px;
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 11px;
+      color: var(--text-muted);
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+      overflow-x: auto;
+      display: flex;
+      align-items: center;
+      gap: 1px;
+      flex-shrink: 0;
+    }
+
+    .fp-seg { cursor: pointer; color: var(--accent); }
+    .fp-seg:hover { text-decoration: underline; }
+    .fp-cur { color: var(--text); }
+    .fp-sep { color: var(--border); margin: 0 1px; }
+
+    .folder-filter-row {
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .folder-filter-row input {
+      flex: 1;
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
-      padding: 6px 10px;
+      padding: 5px 10px;
+      font-size: 12px;
+      color: var(--text);
+      background: var(--surface);
+      outline: none;
+    }
+    .folder-filter-row input:focus { border-color: var(--accent); }
+
+    .folder-filter-warn {
+      font-size: 11px;
+      color: #dc2626;
+      white-space: nowrap;
+    }
+
+    .folder-entries {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 0;
+    }
+
+    .fe-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 16px;
       font-size: 13px;
-      color: var(--text-muted);
       cursor: pointer;
+      user-select: none;
+    }
+    .fe-row:hover { background: var(--bg); }
+    .fe-row.fe-selected { background: #eff6ff; }
+    .fe-row.fe-disabled { opacity: 0.35; cursor: not-allowed; }
+    .fe-row.fe-disabled:hover { background: none; }
+    .fe-row input[type="checkbox"] { cursor: pointer; accent-color: var(--accent); flex-shrink: 0; }
+
+    .fe-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fe-dir  { color: var(--accent); font-weight: 500; }
+
+    .folder-modal-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      border-top: 1px solid var(--border);
+      gap: 8px;
       flex-shrink: 0;
     }
-    .btn-path-cancel:hover { border-color: var(--accent); color: var(--accent); }
+
+    #folderSelCount { font-size: 12px; color: var(--text-muted); }
+
+    .folder-footer-btns { display: flex; gap: 8px; }
+
+    .folder-btn-cancel {
+      background: none; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 5px 14px;
+      font-size: 13px; cursor: pointer; color: var(--text-muted);
+    }
+    .folder-btn-cancel:hover { border-color: var(--accent); color: var(--accent); }
+
+    .folder-btn-add {
+      background: var(--accent); border: none;
+      border-radius: var(--radius-sm); padding: 5px 14px;
+      font-size: 13px; cursor: pointer; color: #fff; font-weight: 500;
+    }
+    .folder-btn-add:disabled { opacity: 0.45; cursor: not-allowed; }
 
     .input-row {
       display: flex;
@@ -710,14 +803,9 @@
   <div class="input-wrapper">
     <div id="ragDocs" style="display:none"></div>
     <div id="fileChips" style="display:none"></div>
-    <div id="pathInputRow">
-      <input id="pathInput" type="text" placeholder="/absolute/path/to/file.pdf">
-      <button class="btn-path-add" id="pathAddBtn">Add</button>
-      <button class="btn-path-cancel" id="pathCancelBtn">Cancel</button>
-    </div>
     <div class="input-row">
       <button id="attachBtn" title="Upload file">📎</button>
-      <button id="pathBtn" title="Load file by path">📂</button>
+      <button id="pathBtn" title="Browse server files">📂</button>
       <input type="file" id="fileInput" hidden multiple
         accept=".pdf,.html,.htm,.txt,.md,.py,.js,.ts,.json,.csv,.png,.jpg,.jpeg,.gif,.webp">
       <textarea id="input" placeholder="Ask anything… (Enter to send, Shift+Enter for newline)" rows="1"></textarea>
@@ -726,6 +814,30 @@
     </div>
   </div>
 </footer>
+
+<!-- ── Folder browser modal ─────────────────────────────────────────────── -->
+<div id="folderOverlay" class="folder-overlay" style="display:none">
+  <div class="folder-modal">
+    <div class="folder-modal-header">
+      <span class="folder-modal-title">Browse files</span>
+      <button class="folder-close" id="folderClose" title="Close">✕</button>
+    </div>
+    <div class="folder-path-bar" id="folderPathBar"></div>
+    <div class="folder-filter-row">
+      <input id="folderExtInput" type="text"
+        placeholder="Extensions to allow: pdf, txt, py  (blank = all)">
+      <span class="folder-filter-warn" id="folderWarn"></span>
+    </div>
+    <div class="folder-entries" id="folderEntries"></div>
+    <div class="folder-modal-footer">
+      <span id="folderSelCount">0 selected</span>
+      <div class="folder-footer-btns">
+        <button class="folder-btn-cancel" id="folderCancel">Cancel</button>
+        <button class="folder-btn-add" id="folderAdd" disabled>Add files</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script>
   // ── Config ──────────────────────────────────────────────────────────────
@@ -744,11 +856,16 @@
   const ctxBadge    = document.getElementById('ctxBadge');
   const attachBtn      = document.getElementById('attachBtn');
   const pathBtn        = document.getElementById('pathBtn');
-  const pathInputRow   = document.getElementById('pathInputRow');
-  const pathInputEl    = document.getElementById('pathInput');
-  const pathAddBtn     = document.getElementById('pathAddBtn');
-  const pathCancelBtn  = document.getElementById('pathCancelBtn');
   const fileInput      = document.getElementById('fileInput');
+  const folderOverlay  = document.getElementById('folderOverlay');
+  const folderPathBar  = document.getElementById('folderPathBar');
+  const folderExtInput = document.getElementById('folderExtInput');
+  const folderWarnEl   = document.getElementById('folderWarn');
+  const folderEntriesEl= document.getElementById('folderEntries');
+  const folderSelCount = document.getElementById('folderSelCount');
+  const folderAddBtn   = document.getElementById('folderAdd');
+  const folderClose    = document.getElementById('folderClose');
+  const folderCancel   = document.getElementById('folderCancel');
   const fileChipsEl    = document.getElementById('fileChips');
   const ragDocsEl      = document.getElementById('ragDocs');
   const stopBtn        = document.getElementById('stopBtn');
@@ -759,6 +876,12 @@
   let stagedFiles = [];    // File objects staged for the next send
   let stagedPaths = [];    // Server-side paths staged for the next send
   let ragDocuments = new Map(); // name → chunk count, persists across turns
+
+  // ── Folder browser state ─────────────────────────────────────────────────
+  let folderCurPath = '/';    // current directory shown in modal
+  let folderSelected = new Set();   // selected file paths (absolute)
+  let folderEntries = [];           // current directory listing from /browse
+  let folderWarnTimer = null;       // timeout id for warning auto-clear
   // Buffered per-turn — set on rag_context event, consumed and appended in done handler
   let pendingRagContext = null;
 
@@ -778,6 +901,7 @@
     modelBadge.textContent  = s.model;
     verboseChk.checked      = s.verbose;
     updateStats(s.input_tokens || 0, s.output_tokens || 0, s.context_pct || 0);
+    if (s.home_dir) folderCurPath = s.home_dir;
   }).catch(() => {});
 
   // ── Auto-resize textarea ─────────────────────────────────────────────────
@@ -837,28 +961,176 @@
     renderFileChips();
   });
 
-  // ── Path input ────────────────────────────────────────────────────────────
-  pathBtn.addEventListener('click', () => {
-    pathInputRow.classList.add('visible');
-    pathInputEl.value = '';
-    pathInputEl.focus();
-  });
+  // ── Folder browser ────────────────────────────────────────────────────────
+  pathBtn.addEventListener('click', openFolderBrowser);
+  folderClose.addEventListener('click', closeFolderBrowser);
+  folderCancel.addEventListener('click', closeFolderBrowser);
+  folderOverlay.addEventListener('click', e => { if (e.target === folderOverlay) closeFolderBrowser(); });
+  folderExtInput.addEventListener('input', renderFolderEntries);
+  folderAddBtn.addEventListener('click', commitFolderSelection);
 
-  function commitPath() {
-    const p = pathInputEl.value.trim();
-    if (!p) return;
-    if (!stagedPaths.includes(p)) stagedPaths.push(p);
-    pathInputEl.value = '';
-    pathInputRow.classList.remove('visible');
-    renderFileChips();
+  function openFolderBrowser() {
+    folderSelected.clear();
+    folderWarnEl.textContent = '';
+    updateFolderSelCount();
+    folderOverlay.style.display = 'flex';
+    loadFolder(folderCurPath);
   }
 
-  pathAddBtn.addEventListener('click', commitPath);
-  pathInputEl.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); commitPath(); } });
-  pathCancelBtn.addEventListener('click', () => {
-    pathInputRow.classList.remove('visible');
-    pathInputEl.value = '';
-  });
+  function closeFolderBrowser() {
+    folderOverlay.style.display = 'none';
+  }
+
+  function commitFolderSelection() {
+    for (const p of folderSelected) {
+      if (!stagedPaths.includes(p)) stagedPaths.push(p);
+    }
+    renderFileChips();
+    closeFolderBrowser();
+  }
+
+  async function loadFolder(path) {
+    folderEntriesEl.innerHTML =
+      '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">Loading…</div>';
+    try {
+      const res = await fetch(`/browse?path=${encodeURIComponent(path)}`);
+      if (!res.ok) {
+        const detail = (await res.json().catch(() => ({}))).detail || res.statusText;
+        throw new Error(detail);
+      }
+      const data = await res.json();
+      folderCurPath = data.path;
+      folderEntries = data.entries;
+      renderFolderPathBar(data);
+      renderFolderEntries();
+    } catch (e) {
+      folderEntriesEl.innerHTML =
+        `<div style="padding:20px;color:#dc2626;font-size:13px">⚠️ ${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  function getExtFilter() {
+    const raw = folderExtInput.value.trim();
+    if (!raw) return [];
+    return raw.split(/[\s,;]+/)
+      .map(e => (e.startsWith('.') ? e.slice(1) : e).toLowerCase())
+      .filter(Boolean);
+  }
+
+  function extMatches(entry, exts) {
+    if (exts.length === 0) return true;          // no filter = all allowed
+    if (!entry.ext) return false;                // no extension is never allowed when filter is set
+    return exts.includes(entry.ext.slice(1));    // entry.ext is ".pdf", exts is ["pdf"]
+  }
+
+  function renderFolderEntries() {
+    const exts = getExtFilter();
+    folderEntriesEl.innerHTML = '';
+
+    if (folderEntries.length === 0) {
+      folderEntriesEl.innerHTML =
+        '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">Empty directory</div>';
+      return;
+    }
+
+    for (const entry of folderEntries) {
+      const row = document.createElement('div');
+
+      if (entry.is_dir) {
+        row.className = 'fe-row';
+        row.innerHTML = `<span>📁</span><span class="fe-name fe-dir">${escapeHtml(entry.name)}</span>`;
+        row.addEventListener('click', () => loadFolder(entry.path));
+      } else {
+        const allowed = extMatches(entry, exts);
+        const selected = folderSelected.has(entry.path);
+        row.className = 'fe-row' + (allowed ? '' : ' fe-disabled') + (selected ? ' fe-selected' : '');
+
+        if (allowed) {
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.checked = selected;
+
+          const icon = document.createElement('span');
+          icon.textContent = '📄';
+
+          const name = document.createElement('span');
+          name.className = 'fe-name';
+          name.textContent = entry.name;
+
+          row.appendChild(cb);
+          row.appendChild(icon);
+          row.appendChild(name);
+
+          const toggle = () => {
+            const nowSelected = !folderSelected.has(entry.path);
+            if (nowSelected) { folderSelected.add(entry.path); row.classList.add('fe-selected'); }
+            else             { folderSelected.delete(entry.path); row.classList.remove('fe-selected'); }
+            cb.checked = nowSelected;
+            updateFolderSelCount();
+          };
+          cb.addEventListener('change', toggle);
+          row.addEventListener('click', e => { if (e.target !== cb) toggle(); });
+        } else {
+          row.innerHTML = `<span>📄</span><span class="fe-name">${escapeHtml(entry.name)}</span>`;
+          row.addEventListener('click', () => showFolderWarn(exts, entry.ext));
+        }
+      }
+
+      folderEntriesEl.appendChild(row);
+    }
+  }
+
+  function showFolderWarn(exts, ext) {
+    const allowed = exts.map(e => `.${e}`).join(', ');
+    const got = ext || '(no extension)';
+    folderWarnEl.textContent = `⚠️ ${got} not allowed — only ${allowed}`;
+    clearTimeout(folderWarnTimer);
+    folderWarnTimer = setTimeout(() => { folderWarnEl.textContent = ''; }, 3500);
+  }
+
+  function updateFolderSelCount() {
+    const n = folderSelected.size;
+    folderSelCount.textContent = n === 0 ? '0 selected' : `${n} file${n !== 1 ? 's' : ''} selected`;
+    folderAddBtn.disabled = n === 0;
+  }
+
+  function renderFolderPathBar(data) {
+    folderPathBar.innerHTML = '';
+    const segs = data.path.replace(/\\/g, '/').split('/').filter(Boolean);
+
+    const addSep = () => {
+      const s = document.createElement('span');
+      s.className = 'fp-sep';
+      s.textContent = '/';
+      folderPathBar.appendChild(s);
+    };
+
+    // Root "/"
+    const root = document.createElement('span');
+    root.className = 'fp-seg';
+    root.textContent = '/';
+    root.title = '/';
+    root.addEventListener('click', () => loadFolder('/'));
+    folderPathBar.appendChild(root);
+
+    let accumulated = '';
+    segs.forEach((seg, i) => {
+      accumulated += '/' + seg;
+      addSep();
+      const span = document.createElement('span');
+      const segPath = accumulated;
+      if (i === segs.length - 1) {
+        span.className = 'fp-cur';
+        span.textContent = seg;
+      } else {
+        span.className = 'fp-seg';
+        span.textContent = seg;
+        span.title = segPath;
+        span.addEventListener('click', () => loadFolder(segPath));
+      }
+      folderPathBar.appendChild(span);
+    });
+  }
 
   // ── RAG document panel ────────────────────────────────────────────────────
   function renderRagDocs() {
@@ -1286,7 +1558,7 @@
     inputEl.disabled = val;
     attachBtn.disabled = val;
     pathBtn.disabled = val;
-    if (val) pathInputRow.classList.remove('visible'); // close path row if streaming starts
+    if (val) closeFolderBrowser(); // close folder modal if streaming starts
     statusBar.style.display = val ? 'flex' : 'none';
     if (val && label) statusText.textContent = label;
   }

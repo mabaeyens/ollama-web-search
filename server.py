@@ -3,13 +3,14 @@
 import asyncio
 import json
 import logging
+import os
 import threading
 from contextlib import asynccontextmanager
-
+from pathlib import Path
 from typing import List
 
 import uvicorn
-from fastapi import FastAPI, Form, UploadFile, File
+from fastapi import FastAPI, Form, HTTPException, UploadFile, File
 
 # Silence noisy third-party loggers
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -176,7 +177,45 @@ async def status():
         "input_tokens": orchestrator.total_input_tokens,
         "output_tokens": orchestrator.total_output_tokens,
         "context_pct": orchestrator.context_pct,
+        "home_dir": str(Path.home()),
     }
+
+
+@app.get("/browse")
+async def browse(path: str = "/"):
+    """List directory contents for the folder browser UI."""
+    try:
+        resolved = os.path.realpath(path)
+        if not os.path.isdir(resolved):
+            raise HTTPException(status_code=400, detail=f"Not a directory: {path}")
+
+        entries = []
+        try:
+            names = sorted(os.listdir(resolved), key=lambda n: (not os.path.isdir(os.path.join(resolved, n)), n.lower()))
+        except PermissionError:
+            raise HTTPException(status_code=403, detail=f"Permission denied: {path}")
+
+        for name in names:
+            full = os.path.join(resolved, name)
+            is_dir = os.path.isdir(full)
+            _, ext = os.path.splitext(name)
+            entries.append({
+                "name": name,
+                "is_dir": is_dir,
+                "ext": ext.lower(),   # e.g. ".pdf", "" for no extension
+                "path": full,
+            })
+
+        parent = str(Path(resolved).parent)
+        return {
+            "path": resolved,
+            "parent": parent if parent != resolved else None,
+            "entries": entries,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
