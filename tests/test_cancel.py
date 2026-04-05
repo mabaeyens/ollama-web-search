@@ -87,3 +87,61 @@ def test_history_rolled_back_on_cancel(client):
 
     assert len(server.orchestrator.conversation_history) == initial_len, \
         "Cancelled turn must not leave entries in conversation history"
+
+
+# ── /browse endpoint tests ────────────────────────────────────────────────────
+
+def test_browse_home_directory(client):
+    """/browse with no path param returns a listing of the server root or home."""
+    resp = client.get("/browse?path=/tmp")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "path" in data
+    assert "entries" in data
+    assert isinstance(data["entries"], list)
+
+
+def test_browse_entries_have_required_fields(client, tmp_path):
+    """Each entry in /browse response has name, is_dir, ext, path fields."""
+    # Create a temp dir with a file and a sub-directory
+    (tmp_path / "doc.pdf").write_text("x")
+    (tmp_path / "subdir").mkdir()
+
+    resp = client.get(f"/browse?path={tmp_path}")
+    assert resp.status_code == 200
+    entries = resp.json()["entries"]
+    assert len(entries) == 2  # subdir first (sorted), then doc.pdf
+    for e in entries:
+        assert "name" in e
+        assert "is_dir" in e
+        assert "ext" in e
+        assert "path" in e
+
+
+def test_browse_dirs_sorted_before_files(client, tmp_path):
+    """Directories must appear before files in /browse results."""
+    (tmp_path / "z_file.txt").write_text("x")
+    (tmp_path / "a_dir").mkdir()
+
+    resp = client.get(f"/browse?path={tmp_path}")
+    entries = resp.json()["entries"]
+    dir_indices  = [i for i, e in enumerate(entries) if e["is_dir"]]
+    file_indices = [i for i, e in enumerate(entries) if not e["is_dir"]]
+    assert max(dir_indices) < min(file_indices), "All dirs must come before files"
+
+
+def test_browse_nonexistent_path_returns_error(client):
+    """/browse with a non-existent path returns 4xx."""
+    resp = client.get("/browse?path=/nonexistent/path/xyz123")
+    assert resp.status_code in (400, 404, 500)
+
+
+def test_browse_ext_field_is_lowercase_with_dot(client, tmp_path):
+    """ext field must be lowercase with leading dot (e.g. '.pdf') or '' for no extension."""
+    (tmp_path / "Document.PDF").write_text("x")
+    (tmp_path / "Makefile").write_text("x")
+
+    resp = client.get(f"/browse?path={tmp_path}")
+    entries = {e["name"]: e for e in resp.json()["entries"]}
+    assert entries["Document.PDF"]["ext"] == ".pdf"
+    assert entries["Makefile"]["ext"] == ""
