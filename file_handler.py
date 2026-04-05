@@ -16,6 +16,32 @@ TEXT_EXTENSIONS = {
     '.kt', '.r', '.sql',
 }
 
+# Magic-byte signatures for binary types we can auto-detect.
+# Checked when the file extension is unrecognised.
+_MAGIC_PDF   = b'%PDF'
+_MAGIC_PNG   = b'\x89PNG\r\n\x1a\n'
+_MAGIC_JPEG  = b'\xff\xd8'
+_MAGIC_GIF87 = b'GIF87a'
+_MAGIC_GIF89 = b'GIF89a'
+_MAGIC_BMP   = b'BM'
+
+
+def _sniff(data: bytes):
+    """Return 'pdf', 'image', or None based on magic bytes."""
+    if data[:4] == _MAGIC_PDF:
+        return 'pdf'
+    if data[:8] == _MAGIC_PNG:
+        return 'image'
+    if data[:2] == _MAGIC_JPEG:
+        return 'image'
+    if data[:6] in (_MAGIC_GIF87, _MAGIC_GIF89):
+        return 'image'
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        return 'image'
+    if data[:2] == _MAGIC_BMP:
+        return 'image'
+    return None
+
 # Truncate text attachments above this threshold to protect the context window
 MAX_CONTENT_CHARS = 80_000
 
@@ -37,20 +63,45 @@ def load_file_bytes(name: str, data: bytes) -> Dict:
     elif ext in ('.html', '.htm'):
         return _extract_html(name, data.decode('utf-8', errors='replace'))
     elif ext in IMAGE_EXTENSIONS:
-        return {
-            "type": "image",
-            "name": name,
-            "content": base64.b64encode(data).decode('utf-8'),
-            "warning": None,
-        }
+        return _make_image(name, data)
     else:
-        # Text, code, or unknown — try to decode as UTF-8
+        # Unknown extension — check magic bytes before falling back to text.
+        # This handles files like "document.bump" that are really PDFs.
+        detected = _sniff(data)
+        if detected == 'pdf':
+            result = _extract_pdf(name, data)
+            display_ext = ext if ext else '(no extension)'
+            result['warning'] = (
+                f"'{name}' has a '{display_ext}' extension but is a PDF — "
+                f"processed as PDF. {result['warning'] or ''}"
+            ).strip()
+            return result
+        if detected == 'image':
+            result = _make_image(name, data)
+            display_ext = ext if ext else '(no extension)'
+            result['warning'] = (
+                f"'{name}' has a '{display_ext}' extension but is an image — "
+                "processed as image."
+            )
+            return result
+        # Genuine text / code / unknown binary — decode as UTF-8
         return _guard({
             "type": "text",
             "name": name,
             "content": data.decode('utf-8', errors='replace'),
             "warning": None,
         })
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _make_image(name: str, data: bytes) -> Dict:
+    return {
+        "type": "image",
+        "name": name,
+        "content": base64.b64encode(data).decode('utf-8'),
+        "warning": None,
+    }
 
 
 # ── Extractors ────────────────────────────────────────────────────────────────

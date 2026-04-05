@@ -145,3 +145,38 @@ def test_browse_ext_field_is_lowercase_with_dot(client, tmp_path):
     entries = {e["name"]: e for e in resp.json()["entries"]}
     assert entries["Document.PDF"]["ext"] == ".pdf"
     assert entries["Makefile"]["ext"] == ""
+
+
+# ── file_handler magic-byte detection tests ──────────────────────────────────
+
+def test_pdf_with_wrong_extension_detected_and_warned(tmp_path):
+    """A file with .bump extension whose bytes start with %PDF is detected as PDF."""
+    import fitz
+    from file_handler import load_file
+
+    # Create a minimal real PDF
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Hello magic bytes test")
+    bump_path = tmp_path / "strangeextensions.Bump"
+    doc.save(str(bump_path))
+    doc.close()
+
+    att = load_file(str(bump_path))
+    assert att["type"] == "rag", "Detected-as-PDF file must use RAG path"
+    assert att["warning"], "Must warn that extension does not match detected type"
+    assert "PDF" in att["warning"]
+    assert "strangeextensions.Bump" in att["warning"]
+
+
+def test_genuine_text_with_unknown_extension_processed_as_text(tmp_path):
+    """A .xyz file containing plain text is still read as text (no false positive)."""
+    from file_handler import load_file
+
+    p = tmp_path / "notes.xyz"
+    p.write_text("Just some plain text here.", encoding="utf-8")
+
+    att = load_file(str(p))
+    assert att["type"] in ("text", "rag")   # small file → text
+    assert att["warning"] is None            # no spurious warning
+    assert "plain text" in att["content"]
