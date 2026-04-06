@@ -1,4 +1,4 @@
-# ollama Search Tool
+# Mira
 
 A local AI assistant powered by **Gemma 4:26b** and **Ollama** with autonomous web search, file attachments, and RAG for large documents. Available as a CLI tool and a local web interface with streaming markdown responses.
 
@@ -35,6 +35,15 @@ uv sync
 ```bash
 ollama serve
 ```
+
+Ollama server settings are configured via env vars in `~/.zprofile` — loaded automatically for every Terminal session, no flags needed:
+
+| Variable | Value | Effect |
+|----------|-------|--------|
+| `OLLAMA_CONTEXT_LENGTH` | `65536` | 64k token context window |
+| `OLLAMA_FLASH_ATTENTION` | `1` | Flash attention enabled |
+
+Metal/GPU acceleration is on by default on macOS — no extra flag required.
 
 **2. CLI:**
 ```bash
