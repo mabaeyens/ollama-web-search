@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**ollama Search Tool** — a local AI assistant using Gemma 4:26b via Ollama with autonomous web search, file attachments (PDF/HTML/images/text), and RAG for large documents. Available as a CLI and a local web interface.
+**Mira** — a local AI assistant using Gemma 4:26b via Ollama with autonomous web search, file attachments (PDF/HTML/images/text), and RAG for large documents. Available as a CLI and a local web interface.
 
 ## Commands
 
@@ -21,6 +21,10 @@ ollama pull nomic-embed-text   # used for RAG embeddings
 # Start the Ollama daemon (required before running CLI or web server)
 # macOS: Ollama.app in menu bar starts it automatically; or run manually:
 ollama serve
+# Ollama server settings live in ~/.zprofile (auto-loaded for every Terminal session):
+#   export OLLAMA_CONTEXT_LENGTH=65536   # 64k context window
+#   export OLLAMA_FLASH_ATTENTION=1      # flash attention
+# Metal/GPU acceleration is on by default on macOS — no extra flag needed.
 
 # Run the CLI
 python main.py
