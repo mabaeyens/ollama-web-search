@@ -22,6 +22,9 @@ Detailed reference for subsystems. Read this file when working on events, RAG, c
 | `warning` | `message` | Non-fatal issue (scanned PDF, chunk limit) |
 | `done` | `content` | Turn complete, full answer |
 | `error` | `message` | Fatal error |
+| `title` | `conv_id, title` | New conversation title generated — emitted after `done`, only on first turn |
+| `compress` | `message` | Context window compressed — emitted after `done` when `context_pct` exceeded threshold |
+| `heartbeat` | — | Keepalive — emitted periodically during long tool calls to prevent connection timeout |
 
 **Mockable boundary:** `_call_ollama()` is the single point tests mock — returns an iterable of stream chunks with `.message.content`, `.message.tool_calls`, `.done`.
 
@@ -49,6 +52,49 @@ Two paths into `stream_chat(attachments=[...])`:
 - Client JS awaits `POST /cancel` first, then calls `reader.cancel()` to close the SSE stream
 
 **Key constraint:** History rollback relies on `event_stream()` receiving the `None` sentinel before the SSE connection closes. If the connection drops before `None` arrives (network issue, browser crash), history is left with the partial user message — not catastrophic, user can hit Reset.
+
+## Context compression
+
+When `context_pct` exceeds `COMPRESS_THRESHOLD` (default 70%), the orchestrator compresses conversation history at the end of the turn:
+
+- Keeps the system prompt and the most recent `COMPRESS_KEEP_RECENT` messages (default 6) verbatim
+- Summarises older messages into a single assistant message using the LLM
+- Emits a `compress` event after `done` so clients can show a notice
+- The compressed history is written back to `orchestrator.conversation_history` and saved to the database
+
+This is transparent to clients — the next turn proceeds normally with a shorter history. Token counts in `stats` reflect the compressed window going forward.
+
+## Endpoint reference
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/chat` | Stream a turn (multipart: `message`, `conversation_id`, `files[]`, `paths[]`) |
+| `POST` | `/cancel` | Abort in-progress response; triggers history rollback |
+| `POST` | `/reset` | New conversation (preserves active project) |
+| `GET` | `/health` | `200` ready, `503` starting, other → unavailable |
+| `GET` | `/status` | Model name, cumulative tokens, `context_pct`, `workspace_root` |
+| `GET` | `/browse` | Directory listing (sandboxed to `$HOME`); query param `path` |
+| `POST` | `/ask` | One-shot ephemeral query — no tools, no DB writes |
+| `GET/POST` | `/projects` | List / create projects |
+| `DELETE` | `/projects/{id}` | Delete project |
+| `GET/POST` | `/conversations` | List / create conversations |
+| `PATCH/DELETE` | `/conversations/{id}` | Rename / delete conversation |
+| `GET` | `/conversations/{id}/messages` | Full message history |
+| `GET` | `/rag/documents` | List indexed RAG documents |
+| `DELETE` | `/rag/documents/{name}` | Remove a RAG document |
+
+## iOS/macOS client integration
+
+The native clients (mira-apps) connect to this server over HTTP/HTTPS. Key integration points:
+
+- **Discovery:** macOS connects to `localhost:8000`; iOS discovers the server via Bonjour (`_ollamasearch._tcp`) or a user-configured URL (Tailscale).
+- **SSE streaming:** `SSEClient.swift` opens `POST /chat` as an `AsyncThrowingStream<ServerEvent>`, parsing each `data:` line as JSON.
+- **Event mapping:** All events in the table above have a corresponding `ServerEvent` Swift enum case consumed by `ChatViewModel`.
+- **Cancel:** iOS/macOS send `POST /cancel` then discard the stream; the server rolls back history.
+- **File uploads:** Sent as multipart form-data, same schema as the web UI.
+- **`title` and `compress` events** arrive after `done`; clients must keep the SSE connection open until the server closes it (signalled by the absence of further events, not by a sentinel).
+
+See `mira-apps/OllamaSearch/Shared/Networking/` for client implementation.
 
 ## Why DDGS over Ollama native search
 
