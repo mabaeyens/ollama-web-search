@@ -4,6 +4,13 @@
 <dict>
     <key>Label</key>
     <string>com.mab.mira</string>
+
+    <!-- Associates this agent with the Mira app in System Settings → Login Items -->
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>com.mab.OllamaSearch</string>
+    </array>
+
     <key>ProgramArguments</key>
     <array>
         <string>/Users/miguel/Documents/Projects/ollama-web-search/.venv/bin/python</string>
@@ -11,6 +18,7 @@
     </array>
     <key>WorkingDirectory</key>
     <string>/Users/miguel/Documents/Projects/ollama-web-search</string>
+
     <key>EnvironmentVariables</key>
     <dict>
         <key>HOME</key>
@@ -26,6 +34,7 @@
         <key>SSL_KEYFILE</key>
         <string>/Users/miguel/Documents/Projects/OllamaSearch/certs/miguels-macbook-pro.tail51ad7d.ts.net.key</string>
     </dict>
+
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
