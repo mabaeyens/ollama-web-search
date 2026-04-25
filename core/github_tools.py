@@ -218,6 +218,77 @@ def github_create_branch(repo: str, branch: str, from_ref: str = "") -> Dict[str
     return {"created": branch, "repo": repo, "from": from_ref, "sha": sha}
 
 
+# ── PR operations ────────────────────────────────────────────────────────────
+
+def github_create_pr(
+    repo: str,
+    title: str,
+    body: str = "",
+    head: str = "",
+    base: str = "",
+) -> Dict[str, Any]:
+    """Open a pull request. head is the branch with changes; base is the target (default branch if omitted)."""
+    if not base:
+        r = _gh("GET", f"/repos/{repo}")
+        if r.status_code != 200:
+            return {"error": r.text}
+        base = r.json()["default_branch"]
+    if not head:
+        return {"error": "head branch is required"}
+    resp = _gh("POST", f"/repos/{repo}/pulls", json={
+        "title": title,
+        "body": body,
+        "head": head,
+        "base": base,
+    })
+    if resp.status_code == 422:
+        return {"error": resp.json().get("message", resp.text)}
+    if resp.status_code != 201:
+        return {"error": resp.text}
+    data = resp.json()
+    return {
+        "number": data["number"],
+        "title": data["title"],
+        "url": data["html_url"],
+        "head": data["head"]["ref"],
+        "base": data["base"]["ref"],
+        "state": data["state"],
+    }
+
+
+def github_merge_pr(
+    repo: str,
+    pr_number: int,
+    merge_method: str = "merge",
+    confirm: bool = False,
+) -> Dict[str, Any]:
+    """Merge a pull request. merge_method: merge | squash | rebase."""
+    if not confirm:
+        return {
+            "requires_confirmation": True,
+            "action": "github_merge_pr",
+            "repo": repo,
+            "pr_number": pr_number,
+            "message": (
+                f"This will merge PR #{pr_number} in {repo} using '{merge_method}'. "
+                "Ask the user to confirm, then call github_merge_pr with confirm=true."
+            ),
+        }
+    resp = _gh("PUT", f"/repos/{repo}/pulls/{pr_number}/merge", json={"merge_method": merge_method})
+    if resp.status_code == 405:
+        return {"error": "PR is not mergeable (conflicts or already merged)"}
+    if resp.status_code == 404:
+        return {"error": f"PR #{pr_number} not found in {repo}"}
+    if resp.status_code not in (200, 204):
+        return {"error": resp.text}
+    data = resp.json()
+    return {
+        "merged": True,
+        "sha": data.get("sha"),
+        "message": data.get("message"),
+    }
+
+
 # ── Destructive operations (require confirm=True) ────────────────────────────
 
 def github_delete_file(

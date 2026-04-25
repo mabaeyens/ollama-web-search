@@ -98,6 +98,27 @@ def move_file(src: str, dst: str) -> Dict[str, Any]:
     return {"from": rel(s), "to": rel(d)}
 
 
+def edit_file(path: str, old_str: str, new_str: str) -> Dict[str, Any]:
+    try:
+        p = safe_path(path)
+    except ValueError as e:
+        return {"error": str(e)}
+    if not p.exists():
+        return {"error": f"File not found: {path}"}
+    if not p.is_file():
+        return {"error": f"Not a file: {path}"}
+    content = p.read_text(encoding="utf-8", errors="replace")
+    count = content.count(old_str)
+    if count == 0:
+        return {"error": "old_str not found in file — no changes made"}
+    if count > 1:
+        return {"error": f"old_str matches {count} locations — make it more specific so the edit is unambiguous"}
+    updated = content.replace(old_str, new_str, 1)
+    p.write_text(updated, encoding="utf-8")
+    line_no = content[: content.index(old_str)].count("\n") + 1
+    return {"path": rel(p), "line": line_no, "action": "edited"}
+
+
 def delete_file(path: str, confirm: bool = False) -> Dict[str, Any]:
     try:
         p = safe_path(path)

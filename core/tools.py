@@ -111,6 +111,27 @@ SEARCH_FILES_TOOL = {
     },
 }
 
+EDIT_FILE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "edit_file",
+        "description": (
+            "Replace an exact string in a file. "
+            "old_str must match exactly once — if it matches zero or multiple times the edit is rejected. "
+            "Prefer this over write_file for targeted changes to existing files."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Relative file path within the workspace"},
+                "old_str": {"type": "string", "description": "Exact string to replace (must be unique in the file)"},
+                "new_str": {"type": "string", "description": "Replacement string"},
+            },
+            "required": ["path", "old_str", "new_str"],
+        },
+    },
+}
+
 MOVE_FILE_TOOL = {
     "type": "function",
     "function": {
@@ -331,6 +352,43 @@ GITHUB_SEARCH_CODE_TOOL = {
     },
 }
 
+GITHUB_CREATE_PR_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "github_create_pr",
+        "description": "Open a pull request on GitHub. head is the branch with your changes; base is where to merge (defaults to the repo's default branch).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "repo": {"type": "string", "description": "owner/repo"},
+                "title": {"type": "string"},
+                "body": {"type": "string", "description": "PR description in Markdown", "default": ""},
+                "head": {"type": "string", "description": "Branch that contains the changes"},
+                "base": {"type": "string", "description": "Branch to merge into (default: repo default branch)", "default": ""},
+            },
+            "required": ["repo", "title", "head"],
+        },
+    },
+}
+
+GITHUB_MERGE_PR_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "github_merge_pr",
+        "description": "Merge a pull request. Requires confirm=true after user approval.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "repo": {"type": "string", "description": "owner/repo"},
+                "pr_number": {"type": "integer", "description": "PR number"},
+                "merge_method": {"type": "string", "description": "merge, squash, or rebase", "default": "merge"},
+                "confirm": {"type": "boolean", "default": False},
+            },
+            "required": ["repo", "pr_number"],
+        },
+    },
+}
+
 GITHUB_DELETE_FILE_TOOL = {
     "type": "function",
     "function": {
@@ -370,7 +428,7 @@ GITHUB_DELETE_BRANCH_TOOL = {
 TOOLS = [
     SEARCH_TOOL, FETCH_TOOL,
     # Filesystem
-    READ_FILE_TOOL, WRITE_FILE_TOOL, LIST_FILES_TOOL, SEARCH_FILES_TOOL,
+    READ_FILE_TOOL, WRITE_FILE_TOOL, EDIT_FILE_TOOL, LIST_FILES_TOOL, SEARCH_FILES_TOOL,
     MOVE_FILE_TOOL, DELETE_FILE_TOOL,
     # Shell
     RUN_SHELL_TOOL,
@@ -378,5 +436,6 @@ TOOLS = [
     GITHUB_LIST_REPOS_TOOL, GITHUB_READ_FILE_TOOL, GITHUB_LIST_FILES_TOOL,
     GITHUB_WRITE_FILE_TOOL, GITHUB_CREATE_REPO_TOOL, GITHUB_CREATE_BRANCH_TOOL,
     GITHUB_LIST_ISSUES_TOOL, GITHUB_CREATE_ISSUE_TOOL, GITHUB_LIST_PRS_TOOL,
-    GITHUB_SEARCH_CODE_TOOL, GITHUB_DELETE_FILE_TOOL, GITHUB_DELETE_BRANCH_TOOL,
+    GITHUB_SEARCH_CODE_TOOL, GITHUB_CREATE_PR_TOOL, GITHUB_MERGE_PR_TOOL,
+    GITHUB_DELETE_FILE_TOOL, GITHUB_DELETE_BRANCH_TOOL,
 ]
