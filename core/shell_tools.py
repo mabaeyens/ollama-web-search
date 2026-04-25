@@ -1,4 +1,13 @@
-"""Shell command execution — cwd always sandboxed to the active workspace root."""
+"""Shell command execution — cwd always sandboxed to the active workspace root.
+
+Security note: commands are executed with shell=True so that pipelines and
+redirects work.  This means a prompt-injection attack could, in principle,
+smuggle arbitrary shell code through model output.  Mitigations in place:
+  1. CWD is always confined to the workspace root via safe_path().
+  2. Commands referencing absolute paths outside the workspace are rejected.
+  3. Known-destructive patterns require explicit user confirmation (force=True).
+The denylist below is defence-in-depth; it is not a complete sandbox.
+"""
 
 import re
 import subprocess
@@ -8,16 +17,30 @@ from typing import Any, Dict, Optional
 from .config import SHELL_TIMEOUT, WORKSPACE_ROOT
 from .workspace import safe_path, rel
 
+
+def _normalize(cmd: str) -> str:
+    """Strip leading backslash-escapes (e.g. \\rm → rm) and collapse whitespace."""
+    cmd = re.sub(r'\\([A-Za-z])', r'\1', cmd)
+    cmd = re.sub(r'\s+', ' ', cmd)
+    return cmd
+
+
 _DANGEROUS = [
-    (re.compile(r"\brm\s+.*-[rRf]", re.I),          "rm with -r/-f flag"),
-    (re.compile(r"\bgit\s+push\b.*--force", re.I),   "git push --force"),
-    (re.compile(r"\bgit\s+reset\s+--hard\b", re.I),  "git reset --hard"),
-    (re.compile(r"\bgit\s+clean\s+-[fFdx]", re.I),   "git clean -f/-d/-x"),
-    (re.compile(r"\bdd\s+if=", re.I),                "dd disk write"),
-    (re.compile(r"\bsudo\b", re.I),                  "sudo"),
-    (re.compile(r"\bmkfs\b", re.I),                  "mkfs"),
-    (re.compile(r">\s*/dev/", re.I),                 "write to /dev/"),
-    (re.compile(r"\bdrop\s+table\b", re.I),          "DROP TABLE"),
+    # rm with -r or -f: bare name, absolute path, via 'command'/'env' wrappers
+    (re.compile(r"\brm\s+.*-[rRf]", re.I),                  "rm with -r/-f flag"),
+    (re.compile(r"/[a-z/]*\brm\s+.*-[rRf]", re.I),          "rm via absolute path"),
+    (re.compile(r"\b(command|env)\s+rm\s+.*-[rRf]", re.I),  "rm via command/env wrapper"),
+    (re.compile(r"\bxargs\s+.*\brm\b", re.I),               "xargs rm"),
+    # Git destructive ops
+    (re.compile(r"\bgit\s+push\b.*--force", re.I),           "git push --force"),
+    (re.compile(r"\bgit\s+reset\s+--hard\b", re.I),          "git reset --hard"),
+    (re.compile(r"\bgit\s+clean\s+-[fFdx]", re.I),           "git clean -f/-d/-x"),
+    # System-level destructive ops
+    (re.compile(r"\bdd\s+if=", re.I),                        "dd disk write"),
+    (re.compile(r"\bsudo\b", re.I),                          "sudo"),
+    (re.compile(r"\bmkfs\b", re.I),                          "mkfs"),
+    (re.compile(r">\s*/dev/", re.I),                         "write to /dev/"),
+    (re.compile(r"\bdrop\s+table\b", re.I),                  "DROP TABLE"),
 ]
 
 
@@ -36,7 +59,9 @@ def run_shell(command: str, cwd: str = ".", force: bool = False, root: Optional[
     except ValueError as e:
         return {"error": str(e)}
 
-    if _abs_outside_ws_pattern(effective_root).search(command):
+    normalized = _normalize(command)
+
+    if _abs_outside_ws_pattern(effective_root).search(normalized):
         return {
             "error": (
                 "Command references an absolute path outside the workspace. "
@@ -46,7 +71,7 @@ def run_shell(command: str, cwd: str = ".", force: bool = False, root: Optional[
         }
 
     for pattern, label in _DANGEROUS:
-        if pattern.search(command):
+        if pattern.search(normalized):
             if not force:
                 return {
                     "requires_confirmation": True,

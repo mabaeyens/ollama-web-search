@@ -11,28 +11,43 @@ ephemeral and re-generated on each turn.  Content is stored as plain text
 (the original user message, not the RAG-augmented version).
 """
 
+import shutil
 import sqlite3
+import threading
 import time
 import uuid
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from .config import DB_PATH, MAX_CONVERSATIONS
+
+_local = threading.local()
 
 
 # ── Connection ────────────────────────────────────────────────────────────────
 
 def _conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    """Return a per-thread SQLite connection, creating it on first use."""
+    if not getattr(_local, "conn", None):
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        _local.conn = conn
+    return _local.conn
 
 
 # ── Schema ────────────────────────────────────────────────────────────────────
 
 def init_db() -> None:
     """Create tables if they do not exist. Safe to call on every startup."""
+    # Migrate from old in-package location if the new path doesn't exist yet.
+    old_path = Path(__file__).parent / "conversations.db"
+    if old_path.exists() and not DB_PATH.exists():
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(old_path, DB_PATH)
+
     with _conn() as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS projects (
@@ -117,7 +132,7 @@ def touch_project(project_id: str) -> None:
 # ── Conversations ─────────────────────────────────────────────────────────────
 
 def create_conversation(model_name: str, project_id: Optional[str] = None) -> str:
-    """Insert a new conversation row and return its ID."""
+    """Insert a new conversation row and evict old ones in a single transaction."""
     conv_id = uuid.uuid4().hex
     now = int(time.time())
     with _conn() as conn:
@@ -126,9 +141,15 @@ def create_conversation(model_name: str, project_id: Optional[str] = None) -> st
             " VALUES (?, ?, ?, ?, ?, ?)",
             (conv_id, "New conversation", now, now, model_name, project_id),
         )
+        conn.execute("""
+            DELETE FROM conversations WHERE id IN (
+                SELECT id FROM conversations
+                ORDER BY updated_at DESC
+                LIMIT -1 OFFSET ?
+            )
+        """, (MAX_CONVERSATIONS,))
     if project_id:
         touch_project(project_id)
-    _evict_old()
     return conv_id
 
 
@@ -212,15 +233,3 @@ def replace_messages(conv_id: str, messages: List[Dict]) -> None:
         )
 
 
-# ── Eviction ──────────────────────────────────────────────────────────────────
-
-def _evict_old() -> None:
-    """Delete conversations beyond MAX_CONVERSATIONS (oldest updated_at first)."""
-    with _conn() as conn:
-        conn.execute("""
-            DELETE FROM conversations WHERE id IN (
-                SELECT id FROM conversations
-                ORDER BY updated_at DESC
-                LIMIT -1 OFFSET ?
-            )
-        """, (MAX_CONVERSATIONS,))

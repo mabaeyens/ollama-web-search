@@ -40,7 +40,7 @@ WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT", str(Path.home() / "workspace"))
 SHELL_TIMEOUT = 30  # seconds per shell command
 
 # Conversation persistence
-DB_PATH = Path(__file__).parent / "conversations.db"
+DB_PATH = Path.home() / ".local" / "share" / "mira" / "conversations.db"
 MAX_CONVERSATIONS = 100    # oldest evicted when exceeded
 COMPRESS_THRESHOLD = 70    # context_pct % at which summarize-and-compress fires
 COMPRESS_KEEP_RECENT = 6   # number of recent messages kept verbatim (not summarized)

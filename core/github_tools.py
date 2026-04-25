@@ -1,19 +1,24 @@
-"""GitHub REST API tools — token sourced live from gh CLI keyring."""
+"""GitHub REST API tools — token sourced from gh CLI keyring (cached per session)."""
 
 import base64
 import subprocess
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import httpx
 
+_cached_token: Optional[str] = None
+
 
 def _token() -> str:
+    global _cached_token
+    if _cached_token:
+        return _cached_token
     result = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True)
-    token = result.stdout.strip()
-    if not token:
+    if result.returncode != 0 or not result.stdout.strip():
         raise RuntimeError("gh auth token returned empty — run 'gh auth login' first")
-    return token
+    _cached_token = result.stdout.strip()
+    return _cached_token
 
 
 def _gh(method: str, path: str, **kwargs) -> httpx.Response:

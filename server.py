@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 orchestrator: ChatOrchestrator = None
 _orch_lock: asyncio.Lock = None
+_init_lock: asyncio.Lock = asyncio.Lock()
 _active_cancels: Dict[str, threading.Event] = {}
 _initialized = False
 _ollama_ready = False
@@ -44,36 +45,37 @@ _ollama_ready = False
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global orchestrator, _orch_lock, _initialized, _ollama_ready
-    if not _initialized:
-        _initialized = True
-        _orch_lock = asyncio.Lock()
-        db.init_db()
-        orchestrator = ChatOrchestrator(verbose=VERBOSE_DEFAULT)
-        convs = db.list_conversations()
-        if convs:
-            project = db.get_project(convs[0]["project_id"]) if convs[0].get("project_id") else None
-            orchestrator.load_conversation(convs[0]["id"], project=project)
-        else:
-            conv_id = db.create_conversation(orchestrator.model)
-            orchestrator.new_conversation(conv_id)
-        logger.info(f"Initialized orchestrator with model: {orchestrator.model}, conv: {orchestrator.conv_id}")
-        for _attempt in range(1, 6):
-            try:
-                running = {m.model for m in orchestrator._ollama.ps().models}
-                if MODEL_NAME in running:
-                    logger.info(f"Model {MODEL_NAME} already loaded in Ollama — reusing")
-                else:
-                    logger.info(f"Model {MODEL_NAME} not loaded — warming up (attempt {_attempt}/5)...")
-                    orchestrator._ollama.generate(model=MODEL_NAME, prompt="", keep_alive="24h")
-                    logger.info(f"Model {MODEL_NAME} ready")
-                break
-            except Exception as e:
-                if _attempt < 5:
-                    logger.warning(f"Ollama not ready (attempt {_attempt}/5): {e} — retrying in 5s")
-                    await asyncio.sleep(5)
-                else:
-                    logger.warning(f"Could not pre-warm model {MODEL_NAME} after 5 attempts: {e}")
-        _ollama_ready = True
+    async with _init_lock:
+        if not _initialized:
+            _initialized = True
+            _orch_lock = asyncio.Lock()
+            db.init_db()
+            orchestrator = ChatOrchestrator(verbose=VERBOSE_DEFAULT)
+            convs = db.list_conversations()
+            if convs:
+                project = db.get_project(convs[0]["project_id"]) if convs[0].get("project_id") else None
+                orchestrator.load_conversation(convs[0]["id"], project=project)
+            else:
+                conv_id = db.create_conversation(orchestrator.model)
+                orchestrator.new_conversation(conv_id)
+            logger.info(f"Initialized orchestrator with model: {orchestrator.model}, conv: {orchestrator.conv_id}")
+            for _attempt in range(1, 6):
+                try:
+                    running = {m.model for m in orchestrator._ollama.ps().models}
+                    if MODEL_NAME in running:
+                        logger.info(f"Model {MODEL_NAME} already loaded in Ollama — reusing")
+                    else:
+                        logger.info(f"Model {MODEL_NAME} not loaded — warming up (attempt {_attempt}/5)...")
+                        orchestrator._ollama.generate(model=MODEL_NAME, prompt="", keep_alive="24h")
+                        logger.info(f"Model {MODEL_NAME} ready")
+                    break
+                except Exception as e:
+                    if _attempt < 5:
+                        logger.warning(f"Ollama not ready (attempt {_attempt}/5): {e} — retrying in 5s")
+                        await asyncio.sleep(5)
+                    else:
+                        logger.warning(f"Could not pre-warm model {MODEL_NAME} after 5 attempts: {e}")
+            _ollama_ready = True
 
     yield
 
