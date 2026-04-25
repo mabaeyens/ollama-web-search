@@ -1,6 +1,7 @@
 # Backlog
 
 ## Done
+- [2026-04-25] Security hardening — resolved all HIGH issues identified in code audit
 - [2026-04-25] github_clone_repo tool — clones a GitHub repo via `gh repo clone`, auto-creates a Mira project in the DB (local_path + github_repo set), returns project_id; `_clone_and_register` helper in orchestrator handles the DB write post-clone
 
 ## Done
