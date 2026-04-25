@@ -31,21 +31,26 @@ Requires Ollama running (`http://localhost:11434`) with `gemma4:26b` and `nomic-
 main.py (CLI)     server.py (FastAPI + SSE)
         └─────────────────┘
                  │
-      ChatOrchestrator (orchestrator.py)
+      core/orchestrator.py → ChatOrchestrator
             │  stream_chat(user_message, attachments=None) → yields events
             ├── _call_ollama() → ollama.chat(stream=True)
-            ├── SearchEngine (search_engine.py) → ddgs.text()
-            └── RagEngine (rag_engine.py)
+            ├── core/search_engine.py → SearchEngine → ddgs.text()
+            └── core/rag_engine.py → RagEngine
                       ├── ollama.embed() → nomic-embed-text
                       ├── chromadb.EphemeralClient (in-memory)
                       └── CrossEncoder (sentence-transformers)
 
-file_handler.py   — load_file() / load_file_bytes(): PDF→RAG, HTML→text, image→base64
-config.py         — all tunables including RAG_* knobs
-tools.py          — Ollama tool schema for web_search
-prompts.py        — build_system_prompt() injects today's date + search rules
-formatter.py      — Rich console helpers (CLI only)
-static/index.html — single-page web UI (vanilla HTML/CSS/JS + marked.js)
+core/file_handler.py — load_file() / load_file_bytes(): PDF→RAG, HTML→text, image→base64
+core/config.py       — all tunables including RAG_* knobs
+core/tools.py        — Ollama tool schema for web_search
+core/prompts.py      — build_system_prompt() injects today's date + search rules
+core/formatter.py    — Rich console helpers (CLI only)
+core/db.py           — SQLite conversation persistence
+core/workspace.py    — sandbox path enforcement
+core/fs_tools.py     — filesystem tool implementations
+core/shell_tools.py  — shell execution tool
+core/github_tools.py — GitHub API tool
+static/index.html    — single-page web UI (vanilla HTML/CSS/JS + marked.js)
 ```
 
 Events yielded by `stream_chat()`: `thinking`, `token`, `search_start/done`, `fetch_start/done/context`, `rag_indexing/done/context`, `stats`, `warning`, `done`, `error`. Full payload schema in `docs/architecture.md`.
@@ -56,7 +61,7 @@ Events yielded by `stream_chat()`: `thinking`, `token`, `search_start/done`, `fe
 
 ## Configuration
 
-All tunables in `config.py` (not git-ignored, no `.env`):
+All tunables in `core/config.py` (not git-ignored, no `.env`):
 - `MODEL_NAME`, `OLLAMA_HOST`
 - `USE_NATIVE_SEARCH`, `MAX_SEARCH_RESULTS`, `SEARCH_TIMEOUT`, `MAX_RETRIES`, `MAX_TOOL_STEPS`
 - `VERBOSE_DEFAULT`
