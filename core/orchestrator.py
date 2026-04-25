@@ -342,15 +342,18 @@ class ChatOrchestrator:
                         return
                     logger.warning(f"Ollama API error (attempt {attempt}/{MAX_RETRIES}): {e}")
 
-            if final_message:
-                logger.info(
-                    "Ollama response — content_len=%d tool_calls=%s thinking_len=%d",
-                    len(final_message.content or ""),
-                    bool(final_message.tool_calls),
-                    len(final_message.thinking or ""),
-                )
+            if final_message is None:
+                yield {"type": "error", "message": "Ollama stream closed without a completion signal."}
+                return
 
-            tool_calls = final_message.tool_calls if final_message else None
+            logger.info(
+                "Ollama response — content_len=%d tool_calls=%s thinking_len=%d",
+                len(final_message.content or ""),
+                bool(final_message.tool_calls),
+                len(final_message.thinking or ""),
+            )
+
+            tool_calls = final_message.tool_calls
 
             if not tool_calls:
                 self.conversation_history.append({"role": "assistant", "content": full_content})
@@ -503,7 +506,7 @@ class ChatOrchestrator:
     def toggle_verbose(self):
         self.verbose = not self.verbose
         status = "enabled" if self.verbose else "disabled"
-        print(f"Verbose mode {status}.")
+        logger.info("Verbose mode %s.", status)
         return self.verbose
 
     @property
@@ -524,4 +527,4 @@ class ChatOrchestrator:
         self._is_new_conv = False
         self._add_system_prompt()
         self.rag_engine.clear()
-        print("Conversation reset.")
+        logger.info("Conversation reset.")
