@@ -23,8 +23,12 @@ ollama pull nomic-embed-text   # used for RAG embeddings
 ollama serve
 # Ollama server settings live in ~/.zprofile (auto-loaded for every Terminal session):
 #   export OLLAMA_CONTEXT_LENGTH=65536   # 64k context window
-#   export OLLAMA_FLASH_ATTENTION=1      # flash attention
+#   export OLLAMA_FLASH_ATTENTION=1      # reduces KV cache memory
+#   export OLLAMA_NUM_PARALLEL=1         # single-user; avoids double KV cache
+#   export OLLAMA_KV_CACHE_TYPE=q8_0    # halves KV cache memory vs f16
+#   export OLLAMA_KEEP_ALIVE=-1          # keep model loaded indefinitely
 # Metal/GPU acceleration is on by default on macOS — no extra flag needed.
+# See hardware-specs.md for full M5 hardware details and optimisation rationale.
 
 # Run the CLI
 python main.py
