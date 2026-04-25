@@ -1,7 +1,7 @@
 """Sandbox path enforcement — all filesystem operations go through here."""
 
 from pathlib import Path
-from config import WORKSPACE_ROOT
+from .config import WORKSPACE_ROOT
 
 
 def safe_path(user_path: str) -> Path:

@@ -5,7 +5,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 from rich.rule import Rule
-from config import ANSWER_PREFIX, SEARCH_PREFIX, ERROR_PREFIX
+from .config import ANSWER_PREFIX, SEARCH_PREFIX, ERROR_PREFIX
 
 console = Console()
 

@@ -6,19 +6,19 @@ from typing import List, Dict, Optional, Iterator
 import json
 
 import ollama
-from config import (
+from .config import (
     MODEL_NAME, MAX_RETRIES, MAX_TOOL_STEPS, VERBOSE_DEFAULT,
     RAG_MAX_CHUNKS, CONTEXT_WINDOW, OLLAMA_HOST,
     COMPRESS_THRESHOLD, COMPRESS_KEEP_RECENT,
 )
-from tools import TOOLS
-from prompts import build_system_prompt, SEARCH_RESULT_TEMPLATE
-from search_engine import SearchEngine
-from rag_engine import RagEngine
-import url_fetcher
-import fs_tools
-import shell_tools
-import github_tools
+from .tools import TOOLS
+from .prompts import build_system_prompt, SEARCH_RESULT_TEMPLATE
+from .search_engine import SearchEngine
+from .rag_engine import RagEngine
+from . import url_fetcher
+from . import fs_tools
+from . import shell_tools
+from . import github_tools
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +99,7 @@ class ChatOrchestrator:
 
     def load_conversation(self, conv_id: str) -> None:
         """Load an existing conversation from DB into memory."""
-        import db
+        from . import db
         messages = db.load_messages(conv_id)
         self.conv_id = conv_id
         self._is_new_conv = False

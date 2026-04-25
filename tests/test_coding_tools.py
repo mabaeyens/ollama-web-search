@@ -3,7 +3,7 @@
 import json
 import pytest
 from unittest.mock import MagicMock, patch
-from orchestrator import ChatOrchestrator
+from core.orchestrator import ChatOrchestrator
 
 
 # ── Mock factories (match existing test_queries.py patterns) ──────────────────
@@ -47,7 +47,7 @@ def test_read_file_emits_tool_events(orc, tmp_path):
     with patch.object(orc, '_call_ollama', side_effect=[
         _tool_stream("read_file", {"path": "README.md"}),
         _final_stream("The README says Hello."),
-    ]), patch("fs_tools.read_file", return_value=fake_result):
+    ]), patch("core.fs_tools.read_file", return_value=fake_result):
         events, content = _consume(orc.stream_chat("What's in the README?"))
 
     types = [e["type"] for e in events]
@@ -68,7 +68,7 @@ def test_write_file_emits_tool_events(orc):
     with patch.object(orc, '_call_ollama', side_effect=[
         _tool_stream("write_file", {"path": "out.txt", "content": "hello world\n"}),
         _final_stream("File written."),
-    ]), patch("fs_tools.write_file", return_value=fake_result):
+    ]), patch("core.fs_tools.write_file", return_value=fake_result):
         events, _ = _consume(orc.stream_chat("Write hello world to out.txt"))
 
     start = next(e for e in events if e["type"] == "tool_start")
@@ -82,7 +82,7 @@ def test_run_shell_emits_tool_events(orc):
     with patch.object(orc, '_call_ollama', side_effect=[
         _tool_stream("run_shell", {"command": "ls"}),
         _final_stream("Files: file.txt"),
-    ]), patch("shell_tools.run_shell", return_value=fake_result):
+    ]), patch("core.shell_tools.run_shell", return_value=fake_result):
         events, _ = _consume(orc.stream_chat("List the files"))
 
     start = next(e for e in events if e["type"] == "tool_start")
@@ -96,7 +96,7 @@ def test_github_list_repos_emits_tool_events(orc):
     with patch.object(orc, '_call_ollama', side_effect=[
         _tool_stream("github_list_repos", {}),
         _final_stream("You have 1 repo."),
-    ]), patch("github_tools.github_list_repos", return_value=fake_result):
+    ]), patch("core.github_tools.github_list_repos", return_value=fake_result):
         events, _ = _consume(orc.stream_chat("List my repos"))
 
     start = next(e for e in events if e["type"] == "tool_start")
@@ -111,7 +111,7 @@ def test_tool_result_added_to_history(orc):
     with patch.object(orc, '_call_ollama', side_effect=[
         _tool_stream("read_file", {"path": "a.py"}),
         _final_stream("x equals 1."),
-    ]), patch("fs_tools.read_file", return_value=fake_result):
+    ]), patch("core.fs_tools.read_file", return_value=fake_result):
         _consume(orc.stream_chat("What's in a.py?"))
 
     tool_msgs = [m for m in orc.conversation_history if m.get("role") == "tool"]
@@ -132,7 +132,7 @@ def test_confirmation_required_result_reaches_model(orc):
     with patch.object(orc, '_call_ollama', side_effect=[
         _tool_stream("delete_file", {"path": "important.txt"}),
         _final_stream("I need your confirmation before deleting important.txt."),
-    ]), patch("fs_tools.delete_file", return_value=confirmation_resp):
+    ]), patch("core.fs_tools.delete_file", return_value=confirmation_resp):
         events, content = _consume(orc.stream_chat("Delete important.txt"))
 
     # Model must receive the confirmation_resp so it can surface it
@@ -157,7 +157,7 @@ def test_shell_dangerous_command_confirmation_flow(orc):
     with patch.object(orc, '_call_ollama', side_effect=[
         _tool_stream("run_shell", {"command": "rm -rf ."}),
         _final_stream("That command is dangerous. Do you want me to proceed?"),
-    ]), patch("shell_tools.run_shell", return_value=confirmation_resp):
+    ]), patch("core.shell_tools.run_shell", return_value=confirmation_resp):
         events, _ = _consume(orc.stream_chat("Run rm -rf ."))
 
     tool_msgs = [m for m in orc.conversation_history if m.get("role") == "tool"]
@@ -174,7 +174,7 @@ def test_tool_error_result_reaches_model(orc):
     with patch.object(orc, '_call_ollama', side_effect=[
         _tool_stream("read_file", {"path": "missing.txt"}),
         _final_stream("That file doesn't exist."),
-    ]), patch("fs_tools.read_file", return_value=error_result):
+    ]), patch("core.fs_tools.read_file", return_value=error_result):
         events, content = _consume(orc.stream_chat("Read missing.txt"))
 
     tool_msgs = [m for m in orc.conversation_history if m.get("role") == "tool"]

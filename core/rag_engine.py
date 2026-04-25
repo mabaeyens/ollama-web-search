@@ -20,7 +20,7 @@ from typing import List, Dict
 import chromadb
 import ollama
 
-from config import (
+from .config import (
     OLLAMA_HOST,
     EMBED_MODEL, RERANK_MODEL,
     RAG_CHUNK_SIZE, RAG_CHUNK_OVERLAP,

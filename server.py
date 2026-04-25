@@ -29,10 +29,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-import db
-import file_handler
-from config import VERBOSE_DEFAULT, COMPRESS_THRESHOLD, MODEL_NAME
-from orchestrator import ChatOrchestrator
+import core.db as db
+import core.file_handler as file_handler
+from core.config import VERBOSE_DEFAULT, COMPRESS_THRESHOLD, MODEL_NAME
+from core.orchestrator import ChatOrchestrator
 
 logging.basicConfig(
     level=logging.INFO,

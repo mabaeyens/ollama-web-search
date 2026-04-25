@@ -4,13 +4,13 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-import workspace
+import core.workspace as workspace
 
 
 @pytest.fixture(autouse=True)
 def patch_workspace_root(tmp_path):
     """Use a real tmp directory so resolve() works correctly on macOS."""
-    with patch("workspace.WORKSPACE_ROOT", str(tmp_path)):
+    with patch("core.workspace.WORKSPACE_ROOT", str(tmp_path)):
         yield tmp_path
 
 

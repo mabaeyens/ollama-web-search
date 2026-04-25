@@ -5,7 +5,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict
 
-from workspace import safe_path, rel
+from .workspace import safe_path, rel
 
 
 def read_file(path: str) -> Dict[str, Any]:

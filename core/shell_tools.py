@@ -5,8 +5,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict
 
-from config import SHELL_TIMEOUT
-from workspace import safe_path, rel
+from .config import SHELL_TIMEOUT
+from .workspace import safe_path, rel
 
 _DANGEROUS = [
     (re.compile(r"\brm\s+.*-[rRf]", re.I),          "rm with -r/-f flag"),

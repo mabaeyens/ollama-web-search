@@ -2,7 +2,7 @@
 
 import logging
 from typing import List, Dict, Optional
-from config import MAX_SEARCH_RESULTS, SEARCH_TIMEOUT, USE_NATIVE_SEARCH
+from .config import MAX_SEARCH_RESULTS, SEARCH_TIMEOUT, USE_NATIVE_SEARCH
 
 logger = logging.getLogger(__name__)
 

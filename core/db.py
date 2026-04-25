@@ -15,7 +15,7 @@ import time
 import uuid
 from typing import Dict, List, Optional
 
-from config import DB_PATH, MAX_CONVERSATIONS
+from .config import DB_PATH, MAX_CONVERSATIONS
 
 
 # ── Connection ────────────────────────────────────────────────────────────────
