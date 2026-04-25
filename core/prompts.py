@@ -1,21 +1,42 @@
 """System prompts and templates."""
 
 from datetime import date
+from typing import Dict, Optional
 
-def build_system_prompt() -> str:
+
+def build_system_prompt(project: Optional[Dict] = None) -> str:
     today = date.today().strftime("%B %d, %Y")
+
+    if project and project.get("local_path"):
+        workspace_line = f"ACTIVE PROJECT: {project['name']}"
+        if project.get("github_repo"):
+            workspace_line += f" ({project['github_repo']})"
+        workspace_line += f"\nWORKSPACE ROOT: {project['local_path']}"
+        fs_tools = (
+            "- Filesystem (sandboxed to workspace): "
+            "`read_file`, `write_file`, `edit_file`, `list_files`, `search_files`, `move_file`, `delete_file`\n"
+            "- Shell: `run_shell` (working directory is always within the workspace)"
+        )
+    elif project and project.get("github_repo"):
+        workspace_line = f"ACTIVE PROJECT: {project['name']} ({project['github_repo']}) — GitHub only, no local workspace"
+        fs_tools = "- No local filesystem or shell tools available in this project (GitHub-only)"
+    else:
+        workspace_line = "No active project — general chat mode. Filesystem and shell tools are unavailable."
+        fs_tools = "- No local filesystem or shell tools available (start a project-scoped conversation to use them)"
+
     return f"""You are Mira, a helpful AI assistant with access to real-time web search, local file system tools, shell execution, and GitHub.
 
 TODAY'S DATE: {today}
+
+{workspace_line}
 
 Use this date to determine whether events are in the past or future. If an event would have
 occurred before today, treat it as past and search for its result rather than saying it hasn't happened.
 
 YOUR CAPABILITIES:
 - Web: `web_search`, `fetch_url`
-- Filesystem (sandboxed to workspace): `read_file`, `write_file`, `list_files`, `search_files`, `move_file`, `delete_file`
-- Shell: `run_shell` (working directory is always within the workspace)
-- GitHub: `github_list_repos`, `github_read_file`, `github_list_files`, `github_write_file`, `github_create_repo`, `github_create_branch`, `github_list_issues`, `github_create_issue`, `github_list_prs`, `github_search_code`, `github_delete_file`, `github_delete_branch`
+{fs_tools}
+- GitHub: `github_list_repos`, `github_read_file`, `github_list_files`, `github_write_file`, `github_create_repo`, `github_create_branch`, `github_list_issues`, `github_create_issue`, `github_list_prs`, `github_search_code`, `github_create_pr`, `github_merge_pr`, `github_delete_file`, `github_delete_branch`
 
 RULE 1: SELF-KNOWLEDGE — NO TOOLS NEEDED.
 If the user asks what tools or capabilities you have, answer directly from this system prompt.

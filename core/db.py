@@ -2,7 +2,8 @@
 
 Schema
 ------
-conversations : id, title, created_at, updated_at, model_name
+projects      : id, name, local_path, github_repo, created_at, last_used
+conversations : id, title, created_at, updated_at, model_name, project_id
 messages      : id, conversation_id, role, content, created_at
 
 Only 'user' and 'assistant' roles are stored — tool / search messages are
@@ -34,6 +35,14 @@ def init_db() -> None:
     """Create tables if they do not exist. Safe to call on every startup."""
     with _conn() as conn:
         conn.executescript("""
+            CREATE TABLE IF NOT EXISTS projects (
+                id          TEXT    PRIMARY KEY,
+                name        TEXT    NOT NULL,
+                local_path  TEXT,
+                github_repo TEXT,
+                created_at  INTEGER NOT NULL,
+                last_used   INTEGER NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS conversations (
                 id         TEXT    PRIMARY KEY,
                 title      TEXT    NOT NULL DEFAULT 'New conversation',
@@ -50,20 +59,75 @@ def init_db() -> None:
                 created_at      INTEGER NOT NULL
             );
         """)
+        # Migration: add project_id to existing conversations tables
+        try:
+            conn.execute("ALTER TABLE conversations ADD COLUMN project_id TEXT")
+        except Exception:
+            pass  # column already exists
+
+
+# ── Projects ──────────────────────────────────────────────────────────────────
+
+def create_project(name: str, local_path: Optional[str] = None, github_repo: Optional[str] = None) -> str:
+    project_id = uuid.uuid4().hex
+    now = int(time.time())
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, local_path, github_repo, created_at, last_used)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (project_id, name, local_path, github_repo, now, now),
+        )
+    return project_id
+
+
+def list_projects() -> List[Dict]:
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT p.id, p.name, p.local_path, p.github_repo, p.created_at, p.last_used,"
+            " (SELECT COUNT(*) FROM conversations c WHERE c.project_id = p.id) AS conversation_count"
+            " FROM projects p ORDER BY p.last_used DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_project(project_id: str) -> Optional[Dict]:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT id, name, local_path, github_repo, created_at, last_used"
+            " FROM projects WHERE id = ?",
+            (project_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def delete_project(project_id: str) -> None:
+    with _conn() as conn:
+        conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+
+
+def touch_project(project_id: str) -> None:
+    """Update last_used timestamp when a project's conversation becomes active."""
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE projects SET last_used = ? WHERE id = ?",
+            (int(time.time()), project_id),
+        )
 
 
 # ── Conversations ─────────────────────────────────────────────────────────────
 
-def create_conversation(model_name: str) -> str:
+def create_conversation(model_name: str, project_id: Optional[str] = None) -> str:
     """Insert a new conversation row and return its ID."""
     conv_id = uuid.uuid4().hex
     now = int(time.time())
     with _conn() as conn:
         conn.execute(
-            "INSERT INTO conversations (id, title, created_at, updated_at, model_name)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (conv_id, "New conversation", now, now, model_name),
+            "INSERT INTO conversations (id, title, created_at, updated_at, model_name, project_id)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (conv_id, "New conversation", now, now, model_name, project_id),
         )
+    if project_id:
+        touch_project(project_id)
     _evict_old()
     return conv_id
 
@@ -72,7 +136,7 @@ def list_conversations() -> List[Dict]:
     """Return all conversations ordered by most recently updated first."""
     with _conn() as conn:
         rows = conn.execute(
-            "SELECT c.id, c.title, c.created_at, c.updated_at, c.model_name,"
+            "SELECT c.id, c.title, c.created_at, c.updated_at, c.model_name, c.project_id,"
             " (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id)"
             " AS message_count"
             " FROM conversations c ORDER BY c.updated_at DESC"
@@ -83,7 +147,7 @@ def list_conversations() -> List[Dict]:
 def get_conversation(conv_id: str) -> Optional[Dict]:
     with _conn() as conn:
         row = conn.execute(
-            "SELECT id, title, created_at, updated_at, model_name"
+            "SELECT id, title, created_at, updated_at, model_name, project_id"
             " FROM conversations WHERE id = ?",
             (conv_id,),
         ).fetchone()

@@ -439,3 +439,9 @@ TOOLS = [
     GITHUB_SEARCH_CODE_TOOL, GITHUB_CREATE_PR_TOOL, GITHUB_MERGE_PR_TOOL,
     GITHUB_DELETE_FILE_TOOL, GITHUB_DELETE_BRANCH_TOOL,
 ]
+
+# Tool names that require a local workspace — excluded when project has no local_path
+_LOCAL_TOOLS = {
+    "read_file", "write_file", "edit_file", "list_files", "search_files",
+    "move_file", "delete_file", "run_shell",
+}

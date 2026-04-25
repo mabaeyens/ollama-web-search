@@ -8,7 +8,7 @@ import socket
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 try:
     from zeroconf import ServiceInfo, Zeroconf as _Zeroconf
@@ -72,7 +72,8 @@ async def lifespan(app: FastAPI):
         # Resume the most recent conversation, or create a fresh one
         convs = db.list_conversations()
         if convs:
-            orchestrator.load_conversation(convs[0]["id"])
+            project = db.get_project(convs[0]["project_id"]) if convs[0].get("project_id") else None
+            orchestrator.load_conversation(convs[0]["id"], project=project)
         else:
             conv_id = db.create_conversation(orchestrator.model)
             orchestrator.new_conversation(conv_id)
@@ -172,7 +173,8 @@ async def chat(
     if conversation_id and conversation_id != orchestrator.conv_id:
         conv = db.get_conversation(conversation_id)
         if conv:
-            orchestrator.load_conversation(conversation_id)
+            project = db.get_project(conv["project_id"]) if conv.get("project_id") else None
+            orchestrator.load_conversation(conversation_id, project=project)
         else:
             orchestrator.new_conversation(conversation_id)
     elif not orchestrator.conv_id:
@@ -291,11 +293,49 @@ async def chat(
 
 @app.post("/reset")
 async def reset():
-    """Start a fresh conversation (old one stays in DB)."""
+    """Start a fresh conversation (old one stays in DB). Preserves active project."""
+    project = orchestrator.project
+    project_id = project["id"] if project else None
     orchestrator.reset_conversation()
-    conv_id = db.create_conversation(orchestrator.model)
-    orchestrator.new_conversation(conv_id)
+    conv_id = db.create_conversation(orchestrator.model, project_id=project_id)
+    orchestrator.new_conversation(conv_id, project=project)
     return {"status": "ok", "conv_id": conv_id, "title": "New conversation"}
+
+
+# ── Project endpoints ─────────────────────────────────────────────────────────
+
+class ProjectRequest(BaseModel):
+    name: str
+    local_path: str = ""
+    github_repo: str = ""
+
+
+@app.get("/projects")
+async def list_projects():
+    return {"projects": db.list_projects()}
+
+
+@app.post("/projects")
+async def create_project(body: ProjectRequest):
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+    local_path = body.local_path.strip() or None
+    github_repo = body.github_repo.strip() or None
+    if not local_path and not github_repo:
+        raise HTTPException(status_code=400, detail="at least one of local_path or github_repo is required")
+    if local_path and not Path(local_path).expanduser().is_dir():
+        raise HTTPException(status_code=400, detail=f"Path does not exist or is not a directory: {local_path}")
+    project_id = db.create_project(name, local_path, github_repo)
+    return db.get_project(project_id)
+
+
+@app.delete("/projects/{project_id}")
+async def delete_project(project_id: str):
+    if not db.get_project(project_id):
+        raise HTTPException(status_code=404, detail="Project not found")
+    db.delete_project(project_id)
+    return {"status": "ok"}
 
 
 # ── Conversation endpoints ────────────────────────────────────────────────────
@@ -305,11 +345,21 @@ async def list_conversations():
     return {"conversations": db.list_conversations()}
 
 
+class CreateConversationRequest(BaseModel):
+    project_id: str = ""
+
+
 @app.post("/conversations")
-async def create_conversation():
-    conv_id = db.create_conversation(orchestrator.model)
-    orchestrator.new_conversation(conv_id)
-    return {"id": conv_id, "title": "New conversation"}
+async def create_conversation(body: Optional[CreateConversationRequest] = None):
+    project_id = (body.project_id.strip() if body else "") or None
+    project = None
+    if project_id:
+        project = db.get_project(project_id)
+        if not project:
+            raise HTTPException(status_code=400, detail=f"Project not found: {project_id}")
+    conv_id = db.create_conversation(orchestrator.model, project_id=project_id)
+    orchestrator.new_conversation(conv_id, project=project)
+    return {"id": conv_id, "title": "New conversation", "project_id": project_id}
 
 
 class RenameRequest(BaseModel):
@@ -332,7 +382,8 @@ async def delete_conversation(conv_id: str):
     if orchestrator.conv_id == conv_id:
         convs = db.list_conversations()
         if convs:
-            orchestrator.load_conversation(convs[0]["id"])
+            project = db.get_project(convs[0]["project_id"]) if convs[0].get("project_id") else None
+            orchestrator.load_conversation(convs[0]["id"], project=project)
         else:
             new_id = db.create_conversation(orchestrator.model)
             orchestrator.new_conversation(new_id)
@@ -374,6 +425,8 @@ async def status():
         "context_pct": orchestrator.context_pct,
         "home_dir": str(Path.home()),
         "conv_id": orchestrator.conv_id,
+        "project": orchestrator.project,
+        "workspace_root": orchestrator.workspace_root,
     }
 
 
