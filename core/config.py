@@ -6,7 +6,7 @@ from pathlib import Path
 # Model settings
 MODEL_NAME = "gemma4:26b"
 MAX_SEARCH_RESULTS = 5
-MAX_TOOL_STEPS = 5   # max tool calls per user turn before giving up
+MAX_TOOL_STEPS = 10  # max tool calls per user turn before giving up
 MAX_RETRIES = 3      # API-level error retries per model call
 
 # Search settings

@@ -418,6 +418,7 @@ class ChatOrchestrator:
             # Filesystem
             "read_file":    lambda a: fs_tools.read_file(a.get("path", "")),
             "write_file":   lambda a: fs_tools.write_file(a.get("path", ""), a.get("content", "")),
+            "edit_file":    lambda a: fs_tools.edit_file(a.get("path", ""), a.get("old_str", ""), a.get("new_str", "")),
             "list_files":   lambda a: fs_tools.list_files(a.get("path", "."), a.get("recursive", False)),
             "search_files": lambda a: fs_tools.search_files(a.get("pattern", ""), a.get("path", "."), a.get("case_sensitive", False)),
             "move_file":    lambda a: fs_tools.move_file(a.get("src", ""), a.get("dst", "")),
@@ -437,6 +438,8 @@ class ChatOrchestrator:
             "github_create_issue": lambda a: github_tools.github_create_issue(a["repo"], a["title"], a.get("body", "")),
             "github_create_branch":lambda a: github_tools.github_create_branch(a["repo"], a["branch"], a.get("from_ref", "")),
             # GitHub — destructive
+            "github_create_pr":    lambda a: github_tools.github_create_pr(a["repo"], a["title"], a.get("body", ""), a.get("head", ""), a.get("base", "")),
+            "github_merge_pr":     lambda a: github_tools.github_merge_pr(a["repo"], a["pr_number"], a.get("merge_method", "merge"), a.get("confirm", False)),
             "github_delete_file":  lambda a: github_tools.github_delete_file(a["repo"], a["path"], a["message"], a.get("branch", ""), a.get("confirm", False)),
             "github_delete_branch":lambda a: github_tools.github_delete_branch(a["repo"], a["branch"], a.get("confirm", False)),
         }
