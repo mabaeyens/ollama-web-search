@@ -393,6 +393,17 @@ async def browse(path: str = "/"):
 
 if __name__ == "__main__":
     import asyncio
+    import signal
+    import subprocess
+    import time
+
+    # Kill any stale server.py from a previous run or Xcode dev session.
+    # Temporarily ignore SIGTERM so pkill doesn't kill this process when it
+    # matches our own argv — old instances die, we continue.
+    _old_sigterm = signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    subprocess.run(["/usr/bin/pkill", "-f", "python.*server\\.py"], capture_output=True)
+    signal.signal(signal.SIGTERM, _old_sigterm)
+    time.sleep(0.4)
 
     ssl_certfile = os.environ.get("SSL_CERTFILE")
     ssl_keyfile  = os.environ.get("SSL_KEYFILE")
