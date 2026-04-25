@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 orchestrator: ChatOrchestrator = None
 cancel_event = threading.Event()
 _initialized = False
+_ollama_ready = False   # True once Ollama warm-up succeeds (or exhausts retries)
 _zc = None       # Zeroconf instance kept alive for the process lifetime
 _zc_info = None  # ServiceInfo kept alive for clean unregistration
 
@@ -61,7 +62,7 @@ def _local_ip() -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global orchestrator, _initialized, _zc, _zc_info
+    global orchestrator, _initialized, _ollama_ready, _zc, _zc_info
     # Guard: when running dual HTTP+HTTPS servers in the same process both
     # servers share this module's globals, so only initialise once.
     if not _initialized:
@@ -76,18 +77,26 @@ async def lifespan(app: FastAPI):
             conv_id = db.create_conversation(orchestrator.model)
             orchestrator.new_conversation(conv_id)
         logger.info(f"Initialized orchestrator with model: {orchestrator.model}, conv: {orchestrator.conv_id}")
-        # Pre-warm the model: if gemma4:26b is already loaded in Ollama keep it,
-        # otherwise trigger a load now so the first chat request is not slow.
-        try:
-            running = {m.model for m in orchestrator._ollama.ps().models}
-            if MODEL_NAME in running:
-                logger.info(f"Model {MODEL_NAME} already loaded in Ollama — reusing")
-            else:
-                logger.info(f"Model {MODEL_NAME} not loaded — warming up (this may take a moment)...")
-                orchestrator._ollama.generate(model=MODEL_NAME, prompt="", keep_alive="24h")
-                logger.info(f"Model {MODEL_NAME} ready")
-        except Exception as e:
-            logger.warning(f"Could not pre-warm model {MODEL_NAME}: {e}")
+        # Pre-warm with retry — Ollama may still be starting up when launchd fires
+        # server.py on login. Retry up to 5 times with a 5-second gap so the model
+        # is loaded before the first user request arrives.
+        for _attempt in range(1, 6):
+            try:
+                running = {m.model for m in orchestrator._ollama.ps().models}
+                if MODEL_NAME in running:
+                    logger.info(f"Model {MODEL_NAME} already loaded in Ollama — reusing")
+                else:
+                    logger.info(f"Model {MODEL_NAME} not loaded — warming up (attempt {_attempt}/5)...")
+                    orchestrator._ollama.generate(model=MODEL_NAME, prompt="", keep_alive="24h")
+                    logger.info(f"Model {MODEL_NAME} ready")
+                break
+            except Exception as e:
+                if _attempt < 5:
+                    logger.warning(f"Ollama not ready (attempt {_attempt}/5): {e} — retrying in 5s")
+                    await asyncio.sleep(5)
+                else:
+                    logger.warning(f"Could not pre-warm model {MODEL_NAME} after 5 attempts: {e}")
+        _ollama_ready = True
         # Register Bonjour so iOS (and macOS thin-client) can discover this server
         # on the LAN. zeroconf is synchronous, so we run it off the event loop.
         if _HAS_ZEROCONF:
@@ -135,7 +144,11 @@ async def index():
 
 @app.get("/health")
 async def health():
-    """Liveness probe — used by the macOS native app to know when the server is ready."""
+    """Liveness probe — used by the macOS native app to know when the server is ready.
+    Returns 503 while Ollama is still warming up so the native app splash keeps polling."""
+    from fastapi.responses import JSONResponse
+    if not _ollama_ready:
+        return JSONResponse({"status": "starting"}, status_code=503)
     return {"status": "ok"}
 
 
@@ -297,6 +310,19 @@ async def create_conversation():
     conv_id = db.create_conversation(orchestrator.model)
     orchestrator.new_conversation(conv_id)
     return {"id": conv_id, "title": "New conversation"}
+
+
+class RenameRequest(BaseModel):
+    title: str
+
+
+@app.patch("/conversations/{conv_id}")
+async def rename_conversation(conv_id: str, body: RenameRequest):
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title required")
+    db.update_title(conv_id, title)
+    return {"status": "ok"}
 
 
 @app.delete("/conversations/{conv_id}")
