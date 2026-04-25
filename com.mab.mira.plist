@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mab.mira</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/miguel/Documents/Projects/ollama-web-search/.venv/bin/python</string>
+        <string>server.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/miguel/Documents/Projects/ollama-web-search</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>/Users/miguel</string>
+        <key>PATH</key>
+        <string>/Users/miguel/Documents/Projects/ollama-web-search/.venv/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>VIRTUAL_ENV</key>
+        <string>/Users/miguel/Documents/Projects/ollama-web-search/.venv</string>
+        <key>OLLAMA_HOST</key>
+        <string>http://127.0.0.1:11434</string>
+        <key>SSL_CERTFILE</key>
+        <string>/Users/miguel/Documents/Projects/OllamaSearch/certs/miguels-macbook-pro.tail51ad7d.ts.net.crt</string>
+        <key>SSL_KEYFILE</key>
+        <string>/Users/miguel/Documents/Projects/OllamaSearch/certs/miguels-macbook-pro.tail51ad7d.ts.net.key</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/com.mab.mira.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/com.mab.mira.log</string>
+</dict>
+</plist>

@@ -43,6 +43,8 @@ logger = logging.getLogger(__name__)
 orchestrator: ChatOrchestrator = None
 cancel_event = threading.Event()
 _initialized = False
+_zc = None       # Zeroconf instance kept alive for the process lifetime
+_zc_info = None  # ServiceInfo kept alive for clean unregistration
 
 
 def _local_ip() -> str:
@@ -59,7 +61,7 @@ def _local_ip() -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global orchestrator, _initialized
+    global orchestrator, _initialized, _zc, _zc_info
     # Guard: when running dual HTTP+HTTPS servers in the same process both
     # servers share this module's globals, so only initialise once.
     if not _initialized:
@@ -86,10 +88,36 @@ async def lifespan(app: FastAPI):
                 logger.info(f"Model {MODEL_NAME} ready")
         except Exception as e:
             logger.warning(f"Could not pre-warm model {MODEL_NAME}: {e}")
-        # Note: Bonjour is registered by the macOS Swift app via NetService,
-        # which advertises on all interfaces. No Python-side registration needed.
+        # Register Bonjour so iOS (and macOS thin-client) can discover this server
+        # on the LAN. zeroconf is synchronous, so we run it off the event loop.
+        if _HAS_ZEROCONF:
+            try:
+                ip = _local_ip()
+                info = ServiceInfo(
+                    "_ollamasearch._tcp.local.",
+                    "Mira._ollamasearch._tcp.local.",
+                    addresses=[socket.inet_aton(ip)],
+                    port=8000,
+                )
+                zc = _Zeroconf()
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, lambda: zc.register_service(info))
+                _zc, _zc_info = zc, info
+                logger.info(f"Bonjour registered on {ip}:8000")
+            except Exception as e:
+                logger.warning(f"Bonjour registration failed: {e}")
 
     yield
+
+    # Unregister Bonjour on shutdown (the _zc = None swap prevents double-close
+    # when both the HTTP and HTTPS lifespans tear down).
+    if _zc is not None:
+        zc, _zc = _zc, None
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, lambda: (zc.unregister_all_services(), zc.close()))
+        except Exception:
+            pass
 
 
 app = FastAPI(title="ollama Search Tool", lifespan=lifespan)
