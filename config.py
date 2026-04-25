@@ -35,6 +35,10 @@ RAG_MAX_CHUNKS = 10_000     # warn user to unload documents above this total
 # Context window
 CONTEXT_WINDOW = 65536  # 64k tokens — configured context for gemma4:26b
 
+# Workspace (coding tools) — set WORKSPACE_ROOT env var to your working folder
+WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT", str(Path.home() / "workspace"))
+SHELL_TIMEOUT = 30  # seconds per shell command
+
 # Conversation persistence
 DB_PATH = Path(__file__).parent / "conversations.db"
 MAX_CONVERSATIONS = 100    # oldest evicted when exceeded

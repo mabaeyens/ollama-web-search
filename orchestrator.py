@@ -3,6 +3,8 @@
 import logging
 from typing import List, Dict, Optional, Iterator
 
+import json
+
 import ollama
 from config import (
     MODEL_NAME, MAX_RETRIES, MAX_TOOL_STEPS, VERBOSE_DEFAULT,
@@ -14,8 +16,44 @@ from prompts import build_system_prompt, SEARCH_RESULT_TEMPLATE
 from search_engine import SearchEngine
 from rag_engine import RagEngine
 import url_fetcher
+import fs_tools
+import shell_tools
+import github_tools
 
 logger = logging.getLogger(__name__)
+
+
+def _tool_ui_labels(name: str, args: dict):
+    """Return (start_label, done_label_fn) for a tool call."""
+    def _err(r): return r.get("error", "")
+    def _ok(r, msg): return msg if not _err(r) else f"Error: {_err(r)}"
+
+    if name == "read_file":
+        p = args.get("path", "")
+        return f"Reading {p}", lambda r: _ok(r, f"Read {r.get('size', 0):,} chars — {p}")
+    if name == "write_file":
+        p = args.get("path", "")
+        return f"Writing {p}", lambda r: _ok(r, f"{r.get('action','Wrote')} {r.get('bytes_written', 0):,} bytes — {p}")
+    if name == "list_files":
+        p = args.get("path", ".")
+        return f"Listing {p}", lambda r: _ok(r, f"{r.get('count', 0)} entries — {p}")
+    if name == "search_files":
+        pat = args.get("pattern", "")
+        return f"Searching for '{pat}'", lambda r: _ok(r, f"{r.get('count', 0)} match(es) for '{pat}'")
+    if name == "move_file":
+        return f"Moving {args.get('src', '')} → {args.get('dst', '')}", lambda r: _ok(r, "Moved")
+    if name == "delete_file":
+        p = args.get("path", "")
+        return f"Deleting {p}", lambda r: _ok(r, f"Deleted {p}") if not r.get("requires_confirmation") else "Needs confirmation"
+    if name == "run_shell":
+        cmd = args.get("command", "")[:60]
+        return f"$ {cmd}", lambda r: _ok(r, f"exit {r.get('exit_code', '?')} — {cmd}")
+    if name.startswith("github_"):
+        label = name.replace("github_", "GitHub: ").replace("_", " ")
+        repo = args.get("repo", "")
+        suffix = f" {repo}" if repo else ""
+        return f"{label}{suffix}", lambda r: _ok(r, f"Done — {label.strip()}")
+    return name, lambda r: "Done" if not _err(r) else f"Error: {_err(r)}"
 
 
 class ChatOrchestrator:
@@ -358,14 +396,59 @@ class ChatOrchestrator:
                     "content": content
                 })
             else:
-                logger.warning(f"Unknown tool: {tool_call.function.name}")
+                name = tool_call.function.name
+                args = tool_call.function.arguments
+                label_start, label_done_fn = _tool_ui_labels(name, args)
+                yield {"type": "tool_start", "tool": name, "label": label_start}
+                result = self._dispatch_tool(name, args)
+                yield {"type": "tool_done", "tool": name, "label": label_done_fn(result)}
                 self.conversation_history.append({
                     "role": "tool",
-                    "name": tool_call.function.name,
-                    "content": f"Error: Unknown tool {tool_call.function.name}"
+                    "name": name,
+                    "content": json.dumps(result),
                 })
 
         yield {"type": "error", "message": f"Reached {MAX_TOOL_STEPS} tool calls without a final answer."}
+
+    # ── Tool dispatch ─────────────────────────────────────────────────────────
+
+    def _dispatch_tool(self, name: str, args: dict) -> dict:
+        """Dispatch a tool call and return its result dict."""
+        dispatch = {
+            # Filesystem
+            "read_file":    lambda a: fs_tools.read_file(a.get("path", "")),
+            "write_file":   lambda a: fs_tools.write_file(a.get("path", ""), a.get("content", "")),
+            "list_files":   lambda a: fs_tools.list_files(a.get("path", "."), a.get("recursive", False)),
+            "search_files": lambda a: fs_tools.search_files(a.get("pattern", ""), a.get("path", "."), a.get("case_sensitive", False)),
+            "move_file":    lambda a: fs_tools.move_file(a.get("src", ""), a.get("dst", "")),
+            "delete_file":  lambda a: fs_tools.delete_file(a.get("path", ""), a.get("confirm", False)),
+            # Shell
+            "run_shell":    lambda a: shell_tools.run_shell(a.get("command", ""), a.get("cwd", "."), a.get("force", False)),
+            # GitHub — read
+            "github_list_repos":   lambda a: github_tools.github_list_repos(a.get("repo_type", "owner")),
+            "github_read_file":    lambda a: github_tools.github_read_file(a["repo"], a["path"], a.get("ref", "")),
+            "github_list_files":   lambda a: github_tools.github_list_files(a["repo"], a.get("path", ""), a.get("ref", "")),
+            "github_list_issues":  lambda a: github_tools.github_list_issues(a["repo"], a.get("state", "open")),
+            "github_list_prs":     lambda a: github_tools.github_list_prs(a["repo"], a.get("state", "open")),
+            "github_search_code":  lambda a: github_tools.github_search_code(a["query"], a.get("repo", "")),
+            # GitHub — write
+            "github_write_file":   lambda a: github_tools.github_write_file(a["repo"], a["path"], a["content"], a["message"], a.get("branch", ""), a.get("sha", "")),
+            "github_create_repo":  lambda a: github_tools.github_create_repo(a["name"], a.get("private", True), a.get("description", ""), a.get("auto_init", True)),
+            "github_create_issue": lambda a: github_tools.github_create_issue(a["repo"], a["title"], a.get("body", "")),
+            "github_create_branch":lambda a: github_tools.github_create_branch(a["repo"], a["branch"], a.get("from_ref", "")),
+            # GitHub — destructive
+            "github_delete_file":  lambda a: github_tools.github_delete_file(a["repo"], a["path"], a["message"], a.get("branch", ""), a.get("confirm", False)),
+            "github_delete_branch":lambda a: github_tools.github_delete_branch(a["repo"], a["branch"], a.get("confirm", False)),
+        }
+        fn = dispatch.get(name)
+        if fn is None:
+            logger.warning(f"Unknown tool: {name}")
+            return {"error": f"Unknown tool: {name}"}
+        try:
+            return fn(args)
+        except Exception as e:
+            logger.error(f"Tool {name} raised: {e}")
+            return {"error": str(e)}
 
     def _call_ollama(self, messages: List[Dict], tools: Optional[List] = None):
         """Call Ollama with streaming. Isolated here to make it mockable in tests."""
