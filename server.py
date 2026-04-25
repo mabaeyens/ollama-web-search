@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 orchestrator: ChatOrchestrator = None
 cancel_event = threading.Event()
+_initialized = False
 
 
 def _local_ip() -> str:
@@ -58,44 +59,25 @@ def _local_ip() -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global orchestrator
-    db.init_db()
-    orchestrator = ChatOrchestrator(verbose=VERBOSE_DEFAULT)
-    # Resume the most recent conversation, or create a fresh one
-    convs = db.list_conversations()
-    if convs:
-        orchestrator.load_conversation(convs[0]["id"])
-    else:
-        conv_id = db.create_conversation(orchestrator.model)
-        orchestrator.new_conversation(conv_id)
-    logger.info(f"Initialized orchestrator with model: {orchestrator.model}, conv: {orchestrator.conv_id}")
-
-    # Advertise on local network via Bonjour so iOS can auto-discover
-    _zeroconf = None
-    _zc_info = None
-    if _HAS_ZEROCONF:
-        try:
-            _zeroconf = _Zeroconf()
-            _zc_info = ServiceInfo(
-                "_ollamasearch._tcp.local.",
-                f"OllamaSearch._ollamasearch._tcp.local.",
-                addresses=[socket.inet_aton(_local_ip())],
-                port=8000,
-                properties={"hostname": socket.gethostname()},
-            )
-            _zeroconf.register_service(_zc_info)
-            logger.info(f"Bonjour: advertising _ollamasearch._tcp on port 8000 ({_local_ip()})")
-        except Exception as e:
-            logger.warning(f"Bonjour advertisement failed: {e}")
+    global orchestrator, _initialized
+    # Guard: when running dual HTTP+HTTPS servers in the same process both
+    # servers share this module's globals, so only initialise once.
+    if not _initialized:
+        _initialized = True
+        db.init_db()
+        orchestrator = ChatOrchestrator(verbose=VERBOSE_DEFAULT)
+        # Resume the most recent conversation, or create a fresh one
+        convs = db.list_conversations()
+        if convs:
+            orchestrator.load_conversation(convs[0]["id"])
+        else:
+            conv_id = db.create_conversation(orchestrator.model)
+            orchestrator.new_conversation(conv_id)
+        logger.info(f"Initialized orchestrator with model: {orchestrator.model}, conv: {orchestrator.conv_id}")
+        # Note: Bonjour is registered by the macOS Swift app via NetService,
+        # which advertises on all interfaces. No Python-side registration needed.
 
     yield
-
-    if _zeroconf and _zc_info:
-        try:
-            _zeroconf.unregister_service(_zc_info)
-            _zeroconf.close()
-        except Exception:
-            pass
 
 
 app = FastAPI(title="ollama Search Tool", lifespan=lifespan)
@@ -370,4 +352,26 @@ async def browse(path: str = "/"):
 
 
 if __name__ == "__main__":
-    uvicorn.run("server:app", host="0.0.0.0", port=8000)
+    import asyncio
+
+    ssl_certfile = os.environ.get("SSL_CERTFILE")
+    ssl_keyfile  = os.environ.get("SSL_KEYFILE")
+
+    async def _run():
+        http_server = uvicorn.Server(
+            uvicorn.Config("server:app", host="0.0.0.0", port=8000, log_level="info")
+        )
+        if ssl_certfile and ssl_keyfile:
+            https_cfg = uvicorn.Config(
+                "server:app", host="0.0.0.0", port=8443,
+                ssl_certfile=ssl_certfile, ssl_keyfile=ssl_keyfile,
+                log_level="info",
+            )
+            https_server = uvicorn.Server(https_cfg)
+            # Only one server should install signal handlers; let http_server own them.
+            https_server.install_signal_handlers = lambda: None
+            await asyncio.gather(http_server.serve(), https_server.serve())
+        else:
+            await http_server.serve()
+
+    asyncio.run(_run())
