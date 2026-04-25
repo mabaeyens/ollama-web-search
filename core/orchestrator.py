@@ -11,7 +11,7 @@ from .config import (
     RAG_MAX_CHUNKS, CONTEXT_WINDOW, OLLAMA_HOST,
     COMPRESS_THRESHOLD, COMPRESS_KEEP_RECENT,
 )
-from .tools import TOOLS
+from .tools import TOOLS, _LOCAL_TOOLS
 from .prompts import build_system_prompt, SEARCH_RESULT_TEMPLATE
 from .search_engine import SearchEngine
 from .rag_engine import RagEngine
@@ -73,22 +73,46 @@ class ChatOrchestrator:
         # Persistence
         self.conv_id: Optional[str] = None
         self._is_new_conv: bool = False
+        # Project / workspace
+        self.project: Optional[Dict] = None
         self._add_system_prompt()
+
+    @property
+    def workspace_root(self) -> Optional[str]:
+        """Active local workspace path, or None if no local project is set."""
+        return self.project.get("local_path") if self.project else None
+
+    @property
+    def _active_tools(self) -> List[Dict]:
+        """Tool list filtered to what's available in the current project context."""
+        if self.workspace_root:
+            return TOOLS
+        return [t for t in TOOLS if t["function"]["name"] not in _LOCAL_TOOLS]
+
+    def set_project(self, project: Optional[Dict]) -> None:
+        """Attach a project to the active conversation and rebuild the system prompt."""
+        self.project = project
+        if self.conversation_history and self.conversation_history[0]["role"] == "system":
+            self.conversation_history[0]["content"] = build_system_prompt(project=project)
+        else:
+            self.system_prompt_added = False
+            self._add_system_prompt()
 
     def _add_system_prompt(self):
         if not self.system_prompt_added:
             self.conversation_history.append({
                 "role": "system",
-                "content": build_system_prompt()
+                "content": build_system_prompt(project=self.project)
             })
             self.system_prompt_added = True
 
     # ── Conversation lifecycle ────────────────────────────────────────────────
 
-    def new_conversation(self, conv_id: str) -> None:
+    def new_conversation(self, conv_id: str, project: Optional[Dict] = None) -> None:
         """Switch to a brand-new (empty) conversation."""
         self.conv_id = conv_id
         self._is_new_conv = True
+        self.project = project
         self.conversation_history = []
         self.system_prompt_added = False
         self.total_input_tokens = 0
@@ -97,12 +121,13 @@ class ChatOrchestrator:
         self._add_system_prompt()
         self.rag_engine.clear()
 
-    def load_conversation(self, conv_id: str) -> None:
+    def load_conversation(self, conv_id: str, project: Optional[Dict] = None) -> None:
         """Load an existing conversation from DB into memory."""
         from . import db
         messages = db.load_messages(conv_id)
         self.conv_id = conv_id
         self._is_new_conv = False
+        self.project = project
         self.conversation_history = []
         self.system_prompt_added = False
         self.total_input_tokens = 0
@@ -283,7 +308,7 @@ class ChatOrchestrator:
             for attempt in range(1, MAX_RETRIES + 1):
                 try:
                     accumulated_tool_calls = None
-                    for chunk in self._call_ollama(self.conversation_history, tools=TOOLS):
+                    for chunk in self._call_ollama(self.conversation_history, tools=self._active_tools):
                         if chunk.message.tool_calls:
                             accumulated_tool_calls = chunk.message.tool_calls
                             logger.info("chunk HAS tool_calls: done=%s tool_calls=%s", chunk.done, chunk.message.tool_calls)
@@ -415,16 +440,16 @@ class ChatOrchestrator:
     def _dispatch_tool(self, name: str, args: dict) -> dict:
         """Dispatch a tool call and return its result dict."""
         dispatch = {
-            # Filesystem
-            "read_file":    lambda a: fs_tools.read_file(a.get("path", "")),
-            "write_file":   lambda a: fs_tools.write_file(a.get("path", ""), a.get("content", "")),
-            "edit_file":    lambda a: fs_tools.edit_file(a.get("path", ""), a.get("old_str", ""), a.get("new_str", "")),
-            "list_files":   lambda a: fs_tools.list_files(a.get("path", "."), a.get("recursive", False)),
-            "search_files": lambda a: fs_tools.search_files(a.get("pattern", ""), a.get("path", "."), a.get("case_sensitive", False)),
-            "move_file":    lambda a: fs_tools.move_file(a.get("src", ""), a.get("dst", "")),
-            "delete_file":  lambda a: fs_tools.delete_file(a.get("path", ""), a.get("confirm", False)),
+            # Filesystem (root passed so each call uses the active project workspace)
+            "read_file":    lambda a: fs_tools.read_file(a.get("path", ""), root=self.workspace_root),
+            "write_file":   lambda a: fs_tools.write_file(a.get("path", ""), a.get("content", ""), root=self.workspace_root),
+            "edit_file":    lambda a: fs_tools.edit_file(a.get("path", ""), a.get("old_str", ""), a.get("new_str", ""), root=self.workspace_root),
+            "list_files":   lambda a: fs_tools.list_files(a.get("path", "."), a.get("recursive", False), root=self.workspace_root),
+            "search_files": lambda a: fs_tools.search_files(a.get("pattern", ""), a.get("path", "."), a.get("case_sensitive", False), root=self.workspace_root),
+            "move_file":    lambda a: fs_tools.move_file(a.get("src", ""), a.get("dst", ""), root=self.workspace_root),
+            "delete_file":  lambda a: fs_tools.delete_file(a.get("path", ""), a.get("confirm", False), root=self.workspace_root),
             # Shell
-            "run_shell":    lambda a: shell_tools.run_shell(a.get("command", ""), a.get("cwd", "."), a.get("force", False)),
+            "run_shell":    lambda a: shell_tools.run_shell(a.get("command", ""), a.get("cwd", "."), a.get("force", False), root=self.workspace_root),
             # GitHub — read
             "github_list_repos":   lambda a: github_tools.github_list_repos(a.get("repo_type", "owner")),
             "github_read_file":    lambda a: github_tools.github_read_file(a["repo"], a["path"], a.get("ref", "")),

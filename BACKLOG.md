@@ -1,6 +1,9 @@
 # Backlog
 
 ## Done
+- [2026-04-25] Step 3 — app project picker: Projects sidebar section, project rows (tap→new scoped chat, context-menu delete), AddProjectSheet (name+path+repo), conversation rows show project badge, loadProjects on startup
+- [2026-04-25] Step 2 — per-conversation workspace: workspace_root flows from project.local_path through orchestrator; fs/shell tools receive root per-call; tool list filtered when no local workspace; system prompt adapts to project context
+- [2026-04-25] Step 1 — projects DB + API: projects table, project_id FK on conversations, /projects CRUD endpoints, POST /conversations accepts project_id
 - [2026-04-25] edit_file(path, old_str, new_str) — targeted string-replace patch tool; rejects if old_str matches zero or >1 locations; prefer over write_file for existing files
 - [2026-04-25] github_create_pr(repo, title, body, head, base) — opens a PR; base defaults to repo default branch
 - [2026-04-25] github_merge_pr(repo, pr_number, merge_method) — merges PR with confirmation gate; supports merge/squash/rebase
@@ -21,13 +24,14 @@
 - [ ] Parallel tool execution — orchestrator runs only the first tool call per step; if the model emits multiple tool calls in one response, the rest are dropped; execute all in parallel and merge results before the next turn
 - [ ] Shell timeout 30s → configurable per-call — long builds and test suites time out; add optional `timeout` arg to `run_shell` (cap at e.g. 300s)
 
-### Project / workspace switching
-- [ ] Per-conversation workspace — `WORKSPACE_ROOT` is a process-global env var; add a `workspace_root` column to the conversations DB so each conversation can be scoped to a different folder; set at conversation creation, shown in the app sidebar
-- [ ] `GET /workspaces` + `POST /workspace` endpoints — let the iOS/macOS app list recently used workspaces and switch the active one; persist the list to disk (JSON sidecar next to the DB)
-- [ ] App project picker UI — sidebar section "Projects" showing recent workspaces; tap to open a new conversation scoped to that folder; "New project" action lets user type an absolute path or a GitHub repo URL (clone on demand into ~/workspace/<name>)
+### Project / workspace switching (remaining)
 - [ ] `github_clone_repo(repo, dest)` tool — wraps `git clone` into the workspace sandbox; enables "open this repo as a project" from within chat without leaving the app
+- [ ] Show active project in chat view header — currently only visible in sidebar; a small pill/badge above the input bar would confirm context to the user
 
 ## Notes
+- Projects have three modes: local-only (local_path only), GitHub-only (github_repo only), or both. Tool availability depends on local_path — no local path means fs/shell tools are hidden from the model entirely
+- workspace_root flows per-call through all fs_tools and shell_tools via a `root` parameter; shell sandbox pattern rebuilt per-call from the active root (not cached at import time)
+- `_LOCAL_TOOLS` set in tools.py drives filtering in orchestrator._active_tools — add new local-only tools there
 - `DB_PATH = Path(__file__).parent / "conversations.db"` in `core/config.py` means the database lives at `mira-core/core/conversations.db`, not the repo root — be aware when backing up
 - The `mira-server` skill copies plist from `~/Documents/Projects/mira-core/com.mab.mira.plist`; reload is required any time the plist or server paths change
 - Mac app bundle ID remains `com.mab.OllamaSearch` (no rebuild needed for Python-side refactors)
