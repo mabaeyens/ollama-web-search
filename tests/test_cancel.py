@@ -152,7 +152,7 @@ def test_browse_ext_field_is_lowercase_with_dot(client, tmp_path):
 def test_pdf_with_wrong_extension_detected_and_warned(tmp_path):
     """A file with .bump extension whose bytes start with %PDF is detected as PDF."""
     import fitz
-    from file_handler import load_file
+    from core.file_handler import load_file
 
     # Create a minimal real PDF
     doc = fitz.open()
@@ -171,7 +171,7 @@ def test_pdf_with_wrong_extension_detected_and_warned(tmp_path):
 
 def test_genuine_text_with_unknown_extension_processed_as_text(tmp_path):
     """A .xyz file containing plain text is still read as text (no false positive)."""
-    from file_handler import load_file
+    from core.file_handler import load_file
 
     p = tmp_path / "notes.xyz"
     p.write_text("Just some plain text here.", encoding="utf-8")
@@ -184,7 +184,7 @@ def test_genuine_text_with_unknown_extension_processed_as_text(tmp_path):
 
 def test_binary_file_with_unknown_extension_rejected(tmp_path):
     """A binary file with an unknown extension (e.g. .qvf) is rejected with a warning."""
-    from file_handler import load_file
+    from core.file_handler import load_file
 
     # Build synthetic binary data: ~90% non-UTF-8 bytes, well above the 5% threshold
     binary_data = bytes(range(256)) * 40  # 10 240 bytes, many invalid UTF-8 sequences

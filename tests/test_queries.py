@@ -2,7 +2,7 @@
 
 import pytest
 from unittest.mock import MagicMock, patch, PropertyMock
-from orchestrator import ChatOrchestrator
+from core.orchestrator import ChatOrchestrator
 
 
 # --- Mock factories ---
@@ -138,7 +138,7 @@ def test_fetch_url_tool_dispatch(orchestrator):
     with patch.object(orchestrator, '_call_ollama', side_effect=[
         _fetch_url_stream("https://example.com"),
         _final_stream("The page says: Full page content."),
-    ]), patch('url_fetcher.fetch_url', return_value=fake_page) as mock_fetch:
+    ]), patch('core.url_fetcher.fetch_url', return_value=fake_page) as mock_fetch:
         events, content = _consume(orchestrator.stream_chat("What does example.com say?"))
 
         mock_fetch.assert_called_once_with("https://example.com")
@@ -198,7 +198,7 @@ def test_fetch_context_event_emitted_after_fetch_url(orchestrator):
     with patch.object(orchestrator, '_call_ollama', side_effect=[
         _fetch_url_stream("https://example.com/article"),
         _final_stream("The article says something."),
-    ]), patch('url_fetcher.fetch_url', return_value=fake_page):
+    ]), patch('core.url_fetcher.fetch_url', return_value=fake_page):
         events, _ = _consume(orchestrator.stream_chat("What does example.com say?"))
 
     ctx = next((e for e in events if e["type"] == "fetch_context"), None)
@@ -240,7 +240,7 @@ def test_fetch_context_multiple_fetches(orchestrator):
         iter([_make_chunk(content="", tool_calls=[fetch1], done=True)]),
         iter([_make_chunk(content="", tool_calls=[fetch2], done=True)]),
         _final_stream("Done."),
-    ]), patch('url_fetcher.fetch_url', return_value=fake_page):
+    ]), patch('core.url_fetcher.fetch_url', return_value=fake_page):
         events, _ = _consume(orchestrator.stream_chat("Compare alpha and beta"))
 
     ctx = next((e for e in events if e["type"] == "fetch_context"), None)

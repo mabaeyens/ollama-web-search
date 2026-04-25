@@ -4,9 +4,9 @@
 import logging
 import readline  # noqa: F401 — enables arrow keys and history in input()
 
-from config import VERBOSE_DEFAULT
-from orchestrator import ChatOrchestrator
-from formatter import (
+from core.config import VERBOSE_DEFAULT
+from core.orchestrator import ChatOrchestrator
+from core.formatter import (
     console, print_header, print_search_status, print_search_results,
     print_error, print_rule, print_stats_rule
 )
@@ -184,7 +184,7 @@ Available commands:
                         print_error("Usage: /attach <path>")
                     else:
                         try:
-                            from file_handler import load_file
+                            from core.file_handler import load_file
                             att = load_file(arg)
                             staged_files.append(att)
                             if att["warning"]:
