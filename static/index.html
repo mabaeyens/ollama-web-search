@@ -1718,6 +1718,32 @@
           break;
         }
 
+        case 'tool_start': {
+          removeThinking();
+          setStatus(event.label);
+          if (assistantBubble) {
+            assistantBubble.innerHTML = renderMarkdown(rawContent);
+            assistantBubble = null;
+            rawContent = '';
+          }
+          currentSearchChip = addStatusChip(
+            'search-status',
+            `<span class="spinner"></span> ${escapeHtml(event.label)}`
+          );
+          break;
+        }
+
+        case 'tool_done': {
+          setStatus('Thinking…');
+          if (currentSearchChip) {
+            const ok = !event.label.startsWith('Error');
+            currentSearchChip.innerHTML = `${ok ? '✅' : '⚠️'} ${escapeHtml(event.label)}`;
+            currentSearchChip = null;
+          }
+          thinkingEl = addStatusChip('thinking', '<div class="t-spinner"></div> Thinking…');
+          break;
+        }
+
         case 'fetch_start': {
           removeThinking();
           const shortUrl = (() => { try { return new URL(event.url).hostname; } catch { return event.url; } })();

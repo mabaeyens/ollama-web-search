@@ -1,0 +1,268 @@
+"""GitHub REST API tools — token sourced live from gh CLI keyring."""
+
+import base64
+import subprocess
+from typing import Any, Dict
+
+import httpx
+
+
+def _token() -> str:
+    result = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True)
+    token = result.stdout.strip()
+    if not token:
+        raise RuntimeError("gh auth token returned empty — run 'gh auth login' first")
+    return token
+
+
+def _gh(method: str, path: str, **kwargs) -> httpx.Response:
+    url = f"https://api.github.com{path}"
+    headers = {
+        "Authorization": f"Bearer {_token()}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    with httpx.Client(timeout=30) as client:
+        return client.request(method, url, headers=headers, **kwargs)
+
+
+# ── Read operations ──────────────────────────────────────────────────────────
+
+def github_list_repos(repo_type: str = "owner") -> Dict[str, Any]:
+    resp = _gh("GET", "/user/repos", params={"type": repo_type, "per_page": 50, "sort": "updated"})
+    if resp.status_code != 200:
+        return {"error": resp.text}
+    return {
+        "repos": [
+            {
+                "name": r["full_name"],
+                "private": r["private"],
+                "description": r.get("description") or "",
+                "updated_at": r["updated_at"],
+                "default_branch": r["default_branch"],
+            }
+            for r in resp.json()
+        ],
+        "count": len(resp.json()),
+    }
+
+
+def github_read_file(repo: str, path: str, ref: str = "") -> Dict[str, Any]:
+    params = {"ref": ref} if ref else {}
+    resp = _gh("GET", f"/repos/{repo}/contents/{path}", params=params)
+    if resp.status_code == 404:
+        return {"error": f"Not found: {repo}/{path}"}
+    if resp.status_code != 200:
+        return {"error": resp.text}
+    data = resp.json()
+    if data.get("encoding") == "base64":
+        content = base64.b64decode(data["content"]).decode("utf-8", errors="replace")
+    else:
+        content = data.get("content", "")
+    return {"repo": repo, "path": path, "sha": data["sha"], "size": data["size"], "content": content}
+
+
+def github_list_files(repo: str, path: str = "", ref: str = "") -> Dict[str, Any]:
+    params = {"ref": ref} if ref else {}
+    url_path = f"/repos/{repo}/contents/{path}" if path else f"/repos/{repo}/contents"
+    resp = _gh("GET", url_path, params=params)
+    if resp.status_code == 404:
+        return {"error": f"Not found: {repo}/{path or ''}"}
+    if resp.status_code != 200:
+        return {"error": resp.text}
+    data = resp.json()
+    if not isinstance(data, list):
+        return {"repo": repo, "path": path, "type": data.get("type"), "sha": data.get("sha")}
+    entries = [{"name": e["name"], "type": e["type"], "size": e.get("size"), "path": e["path"]} for e in data]
+    return {"repo": repo, "path": path, "entries": entries, "count": len(entries)}
+
+
+def github_list_issues(repo: str, state: str = "open") -> Dict[str, Any]:
+    resp = _gh("GET", f"/repos/{repo}/issues", params={"state": state, "per_page": 30})
+    if resp.status_code != 200:
+        return {"error": resp.text}
+    issues = [i for i in resp.json() if "pull_request" not in i]
+    return {
+        "issues": [
+            {"number": i["number"], "title": i["title"], "state": i["state"], "url": i["html_url"]}
+            for i in issues
+        ],
+        "count": len(issues),
+    }
+
+
+def github_list_prs(repo: str, state: str = "open") -> Dict[str, Any]:
+    resp = _gh("GET", f"/repos/{repo}/pulls", params={"state": state, "per_page": 30})
+    if resp.status_code != 200:
+        return {"error": resp.text}
+    prs = resp.json()
+    return {
+        "prs": [
+            {
+                "number": pr["number"],
+                "title": pr["title"],
+                "state": pr["state"],
+                "head": pr["head"]["ref"],
+                "base": pr["base"]["ref"],
+                "url": pr["html_url"],
+            }
+            for pr in prs
+        ],
+        "count": len(prs),
+    }
+
+
+def github_search_code(query: str, repo: str = "") -> Dict[str, Any]:
+    q = f"{query} repo:{repo}" if repo else query
+    resp = _gh("GET", "/search/code", params={"q": q, "per_page": 20})
+    if resp.status_code != 200:
+        return {"error": resp.text}
+    data = resp.json()
+    return {
+        "total": data["total_count"],
+        "items": [
+            {"repo": i["repository"]["full_name"], "path": i["path"], "url": i["html_url"]}
+            for i in data["items"][:20]
+        ],
+    }
+
+
+# ── Write operations ─────────────────────────────────────────────────────────
+
+def github_write_file(
+    repo: str,
+    path: str,
+    content: str,
+    message: str,
+    branch: str = "",
+    sha: str = "",
+) -> Dict[str, Any]:
+    """Create or update a file. sha is auto-fetched if the file already exists."""
+    body: Dict[str, Any] = {
+        "message": message,
+        "content": base64.b64encode(content.encode()).decode(),
+    }
+    if branch:
+        body["branch"] = branch
+    # Auto-fetch sha for updates
+    if not sha:
+        existing = github_read_file(repo, path, ref=branch)
+        if "sha" in existing:
+            body["sha"] = existing["sha"]
+    else:
+        body["sha"] = sha
+
+    resp = _gh("PUT", f"/repos/{repo}/contents/{path}", json=body)
+    if resp.status_code not in (200, 201):
+        return {"error": resp.text}
+    data = resp.json()
+    return {
+        "action": "updated" if resp.status_code == 200 else "created",
+        "repo": repo,
+        "path": path,
+        "commit_sha": data["commit"]["sha"],
+        "url": data["content"]["html_url"],
+    }
+
+
+def github_create_repo(
+    name: str,
+    private: bool = True,
+    description: str = "",
+    auto_init: bool = True,
+) -> Dict[str, Any]:
+    resp = _gh("POST", "/user/repos", json={
+        "name": name,
+        "private": private,
+        "description": description,
+        "auto_init": auto_init,
+    })
+    if resp.status_code == 422:
+        return {"error": "Repository name already exists or is invalid"}
+    if resp.status_code != 201:
+        return {"error": resp.text}
+    data = resp.json()
+    return {
+        "created": True,
+        "full_name": data["full_name"],
+        "url": data["html_url"],
+        "clone_url": data["ssh_url"],
+        "private": data["private"],
+        "default_branch": data["default_branch"],
+    }
+
+
+def github_create_issue(repo: str, title: str, body: str = "") -> Dict[str, Any]:
+    resp = _gh("POST", f"/repos/{repo}/issues", json={"title": title, "body": body})
+    if resp.status_code != 201:
+        return {"error": resp.text}
+    data = resp.json()
+    return {"number": data["number"], "url": data["html_url"], "title": data["title"]}
+
+
+def github_create_branch(repo: str, branch: str, from_ref: str = "") -> Dict[str, Any]:
+    if not from_ref:
+        r = _gh("GET", f"/repos/{repo}")
+        if r.status_code != 200:
+            return {"error": r.text}
+        from_ref = r.json()["default_branch"]
+    ref_resp = _gh("GET", f"/repos/{repo}/git/refs/heads/{from_ref}")
+    if ref_resp.status_code != 200:
+        return {"error": f"Source ref '{from_ref}' not found"}
+    sha = ref_resp.json()["object"]["sha"]
+    resp = _gh("POST", f"/repos/{repo}/git/refs", json={"ref": f"refs/heads/{branch}", "sha": sha})
+    if resp.status_code == 422:
+        return {"error": f"Branch '{branch}' already exists"}
+    if resp.status_code != 201:
+        return {"error": resp.text}
+    return {"created": branch, "repo": repo, "from": from_ref, "sha": sha}
+
+
+# ── Destructive operations (require confirm=True) ────────────────────────────
+
+def github_delete_file(
+    repo: str,
+    path: str,
+    message: str,
+    branch: str = "",
+    confirm: bool = False,
+) -> Dict[str, Any]:
+    if not confirm:
+        return {
+            "requires_confirmation": True,
+            "action": "github_delete_file",
+            "repo": repo,
+            "path": path,
+            "message": (
+                f"This will permanently delete '{path}' from {repo}. "
+                "Ask the user to confirm, then call github_delete_file with confirm=true."
+            ),
+        }
+    existing = github_read_file(repo, path, ref=branch)
+    if "error" in existing:
+        return existing
+    body: Dict[str, Any] = {"message": message, "sha": existing["sha"]}
+    if branch:
+        body["branch"] = branch
+    resp = _gh("DELETE", f"/repos/{repo}/contents/{path}", json=body)
+    if resp.status_code != 200:
+        return {"error": resp.text}
+    return {"deleted": path, "repo": repo, "commit_sha": resp.json()["commit"]["sha"]}
+
+
+def github_delete_branch(repo: str, branch: str, confirm: bool = False) -> Dict[str, Any]:
+    if not confirm:
+        return {
+            "requires_confirmation": True,
+            "action": "github_delete_branch",
+            "repo": repo,
+            "branch": branch,
+            "message": (
+                f"This will delete branch '{branch}' from {repo}. "
+                "Ask the user to confirm, then call github_delete_branch with confirm=true."
+            ),
+        }
+    resp = _gh("DELETE", f"/repos/{repo}/git/refs/heads/{branch}")
+    if resp.status_code == 204:
+        return {"deleted": branch, "repo": repo}
+    return {"error": resp.text}
