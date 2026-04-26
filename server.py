@@ -475,12 +475,24 @@ async def ask(body: AskRequest, _: None = Depends(_ready)):
 if __name__ == "__main__":
     import signal
     import subprocess
+    import sys
     import time
 
     _old_sigterm = signal.signal(signal.SIGTERM, signal.SIG_IGN)
     subprocess.run(["/usr/bin/pkill", "-f", "python.*server\\.py"], capture_output=True)
     signal.signal(signal.SIGTERM, _old_sigterm)
     time.sleep(0.4)
+
+    # Prevent macOS idle sleep while the server is running.
+    # caffeinate -i prevents idle system sleep (battery + AC); -s additionally
+    # prevents sleep on AC power. -w <pid> ties the assertion to this process —
+    # caffeinate exits automatically when the server exits, so no orphan is left.
+    if sys.platform == "darwin":
+        subprocess.Popen(
+            ["/usr/bin/caffeinate", "-i", "-s", "-w", str(os.getpid())],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        logger.info("Power assertion active: idle sleep prevented while server is running")
 
     ssl_certfile = os.environ.get("SSL_CERTFILE")
     ssl_keyfile  = os.environ.get("SSL_KEYFILE")
