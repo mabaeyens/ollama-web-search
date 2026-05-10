@@ -57,6 +57,25 @@ python server.py
 
 > `server.py` and `main.py` do **not** start Ollama automatically — they will fail with a connection error if `ollama serve` is not running first.
 
+## macOS LaunchAgent (optional)
+
+To run the web server as a background service that starts at login:
+
+```bash
+cp com.mab.mira.plist.template com.mab.mira.plist
+cp start-mira-server.sh.template start-mira-server.sh
+```
+
+Edit both files — replace `<MIRA_DIR>` and `<YOUR_HOME>` with your actual paths. If you are not using HTTPS/Tailscale, remove the `SSL_CERTFILE` / `SSL_KEYFILE` keys from the plist.
+
+```bash
+chmod +x start-mira-server.sh
+cp com.mab.mira.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.mab.mira.plist
+```
+
+Both filled-in files are git-ignored (they contain local paths). Only the `*.template` originals are committed.
+
 ## CLI Commands
 
 | Command | Description |

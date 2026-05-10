@@ -1,4 +1,4 @@
-# Project Summary: ollama Search Tool (Gemma 4 + Ollama)
+# Project Summary: Mira (Gemma 4 + Ollama)
 
 ## 1. Original Intent & Goal
 To build a **local, private AI assistant** running on macOS that:

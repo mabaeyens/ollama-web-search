@@ -1,0 +1,17 @@
+#!/bin/bash
+# Wrapper for the Mira LaunchAgent. Kills any stale server.py before starting
+# so that launchd restarts after a crash never hit "port already in use".
+#
+# Template — copy to start-mira-server.sh and replace <MIRA_DIR> with the
+# absolute path to this repo (e.g. /Users/alice/Projects/mira-core).
+# The filled-in file is git-ignored; only this template is committed.
+set -e
+
+SERVER_DIR="<MIRA_DIR>"
+PYTHON="$SERVER_DIR/.venv/bin/python"
+
+pkill -f "python.*server\.py" 2>/dev/null || true
+sleep 0.3
+
+cd "$SERVER_DIR"
+exec "$PYTHON" server.py

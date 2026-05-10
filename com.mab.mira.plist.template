@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent template — copy to com.mab.mira.plist and fill in the placeholders.
+  The filled-in file is git-ignored (contains local paths); only this template is committed.
+
+  Placeholders:
+    <MIRA_DIR>       — absolute path to this repo, e.g. /Users/alice/Projects/mira-core
+    <YOUR_HOME>      — your home directory, e.g. /Users/alice
+    <TAILSCALE_HOST> — your Tailscale hostname (optional, only needed for HTTPS/Tailscale)
+
+  Install:
+    cp com.mab.mira.plist.template com.mab.mira.plist
+    # edit the copy, then:
+    cp com.mab.mira.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.mab.mira.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mab.mira</string>
+
+    <!-- Associates this agent with the Mira app in System Settings → Login Items -->
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>com.mab.OllamaSearch</string>
+    </array>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string><MIRA_DIR>/.venv/bin/python</string>
+        <string>server.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string><MIRA_DIR></string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string><YOUR_HOME></string>
+        <key>PATH</key>
+        <string><MIRA_DIR>/.venv/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>VIRTUAL_ENV</key>
+        <string><MIRA_DIR>/.venv</string>
+        <key>OLLAMA_HOST</key>
+        <string>http://127.0.0.1:11434</string>
+        <!-- Remove the two keys below if you are not using HTTPS / Tailscale -->
+        <key>SSL_CERTFILE</key>
+        <string>/path/to/certs/<TAILSCALE_HOST>.crt</string>
+        <key>SSL_KEYFILE</key>
+        <string>/path/to/certs/<TAILSCALE_HOST>.key</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/com.mab.mira.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/com.mab.mira.log</string>
+</dict>
+</plist>

@@ -45,6 +45,12 @@ Thumbs.db
 
 # Conversation database (local data, not committed)
 conversations.db
+*.db-shm
+*.db-wal
+
+# LaunchAgent and wrapper — contain local absolute paths; edit from *.template
+com.mab.mira.plist
+start-mira-server.sh
 
 # Claude Code local settings
 .claude/

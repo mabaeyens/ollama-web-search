@@ -1,6 +1,6 @@
 # Development Log
 
-This document captures the development history of the ollama Search Tool: the decisions made, the problems encountered, and how they were resolved. It is written after the fact, reconstructed from the full build session.
+This document captures the development history of Mira: the decisions made, the problems encountered, and how they were resolved. It is written after the fact, reconstructed from the full build session.
 
 ## Tooling
 
@@ -24,7 +24,7 @@ The user directed all goals, reviewed all output, and made final decisions on ev
 
 The project uses `uv` (not `pip` or `venv`) for dependency management. `uv` was chosen for fast resolution and reproducible lockfiles. The first issue encountered was a `hatchling` build error on `uv sync` caused by a `[build-system]` section in `pyproject.toml`. Fix: remove `[build-system]` and add `package = false` under `[tool.uv]` to signal this is an application, not a library.
 
-The repository was initialised locally and pushed to `github.com/mabaeyens/ollama-web-search`. GitHub had auto-created a README and `.gitignore` on the remote, causing the initial push to be rejected. Resolved with `--allow-unrelated-histories` and kept our versions with `git checkout --ours`.
+The repository was initialised locally and pushed to `github.com/mabaeyens/mira-core`. GitHub had auto-created a README and `.gitignore` on the remote, causing the initial push to be rejected. Resolved with `--allow-unrelated-histories` and kept our versions with `git checkout --ours`.
 
 The package `duckduckgo-search` was renamed to `ddgs` upstream. Dependency and import updated accordingly.
 
@@ -131,7 +131,7 @@ The original RAG repo was built against ChromaDB 0.5.15 and had extensive defens
 
 ### RAG repo integration decision
 
-The existing `github.com/mabaeyens/RAG` repo was reviewed as a potential base. Decision: **rewrite from scratch** in `ollama-web-search`. Reasons:
+The existing `github.com/mabaeyens/RAG` repo was reviewed as a potential base. Decision: **rewrite from scratch** in `mira-core`. Reasons:
 1. The original had complexity specific to `PersistentClient` that doesn't apply to `EphemeralClient`.
 2. The `_log_memory_usage` method referenced `self.telemetry_dir` which was never assigned in `__init__` (latent bug).
 3. Copying the code would have imported problems that don't exist with the new stack.
