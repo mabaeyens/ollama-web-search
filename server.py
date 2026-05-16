@@ -25,7 +25,7 @@ logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
 
 import core.db as db
 import core.file_handler as file_handler
-from core.config import VERBOSE_DEFAULT, COMPRESS_THRESHOLD, MODEL_NAME
+from core.config import VERBOSE_DEFAULT, COMPRESS_THRESHOLD, MODEL_NAME, BACKEND, OLLAMA_HOST, CONTEXT_WINDOW
 from core.orchestrator import ChatOrchestrator
 
 logging.basicConfig(
@@ -58,23 +58,26 @@ async def lifespan(app: FastAPI):
             else:
                 conv_id = db.create_conversation(orchestrator.model)
                 orchestrator.new_conversation(conv_id)
-            logger.info(f"Initialized orchestrator with model: {orchestrator.model}, conv: {orchestrator.conv_id}")
-            for _attempt in range(1, 6):
-                try:
-                    running = {m.model for m in orchestrator._ollama.ps().models}
-                    if MODEL_NAME in running:
-                        logger.info(f"Model {MODEL_NAME} already loaded in Ollama — reusing")
-                    else:
-                        logger.info(f"Model {MODEL_NAME} not loaded — warming up (attempt {_attempt}/5)...")
-                        orchestrator._ollama.generate(model=MODEL_NAME, prompt="", keep_alive="24h")
-                        logger.info(f"Model {MODEL_NAME} ready")
-                    break
-                except Exception as e:
-                    if _attempt < 5:
-                        logger.warning(f"Ollama not ready (attempt {_attempt}/5): {e} — retrying in 5s")
-                        await asyncio.sleep(5)
-                    else:
-                        logger.warning(f"Could not pre-warm model {MODEL_NAME} after 5 attempts: {e}")
+            logger.info(f"Initialized orchestrator — backend: {BACKEND}, model: {orchestrator.model}, conv: {orchestrator.conv_id}")
+            if BACKEND == "ollama":
+                for _attempt in range(1, 6):
+                    try:
+                        running = {m.model for m in orchestrator._ollama.ps().models}
+                        if MODEL_NAME in running:
+                            logger.info(f"Model {MODEL_NAME} already loaded in Ollama — reusing")
+                        else:
+                            logger.info(f"Model {MODEL_NAME} not loaded — warming up (attempt {_attempt}/5)...")
+                            orchestrator._ollama.generate(model=MODEL_NAME, prompt="", keep_alive="24h")
+                            logger.info(f"Model {MODEL_NAME} ready")
+                        break
+                    except Exception as e:
+                        if _attempt < 5:
+                            logger.warning(f"Ollama not ready (attempt {_attempt}/5): {e} — retrying in 5s")
+                            await asyncio.sleep(5)
+                        else:
+                            logger.warning(f"Could not pre-warm model {MODEL_NAME} after 5 attempts: {e}")
+            else:
+                logger.info(f"oMLX backend — model {MODEL_NAME} managed by oMLX server at {OLLAMA_HOST}")
             _ollama_ready = True
 
     yield
@@ -115,6 +118,19 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/info")
+async def info():
+    """Return server/model metadata for display in the client app."""
+    hardware = "Apple Silicon (MLX)" if BACKEND == "omlx" else "Ollama"
+    return {
+        "model": MODEL_NAME,
+        "backend": BACKEND,
+        "host": OLLAMA_HOST,
+        "context_window": CONTEXT_WINDOW,
+        "hardware": hardware,
+    }
+
+
 @app.post("/cancel")
 async def cancel():
     for ev in list(_active_cancels.values()):
@@ -128,6 +144,7 @@ async def chat(
     conversation_id: str = Form(default=""),
     files: List[UploadFile] = File(default=[]),
     paths: List[str] = Form(default=[]),
+    thinking_enabled: bool = Form(default=True),
     _: None = Depends(_ready),
 ):
     """SSE endpoint — streams typed events from stream_chat() to the browser."""
@@ -189,7 +206,7 @@ async def chat(
             done_content = None
 
             try:
-                for event in orchestrator.stream_chat(message, attachments=attachments or None):
+                for event in orchestrator.stream_chat(message, attachments=attachments or None, thinking_enabled=thinking_enabled):
                     if cancel_event.is_set():
                         break
                     if event.get("type") == "done":
@@ -458,15 +475,10 @@ async def ask(body: AskRequest, _: None = Depends(_ready)):
         messages.append({"role": "system", "content": body.system.strip()})
     messages.append({"role": "user", "content": body.prompt.strip()})
     try:
-        resp = await asyncio.get_running_loop().run_in_executor(
-            None,
-            lambda: orchestrator._ollama.chat(
-                model=orchestrator.model,
-                messages=messages,
-                stream=False,
-            ),
+        text = await asyncio.get_running_loop().run_in_executor(
+            None, lambda: orchestrator._llm_chat_sync(messages)
         )
-        return {"response": (resp.message.content or "").strip()}
+        return {"response": text}
     except Exception as e:
         logger.error("ask error: %s", e)
         raise HTTPException(status_code=502, detail="Internal error — see server logs")

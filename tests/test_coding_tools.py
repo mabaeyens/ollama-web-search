@@ -18,7 +18,7 @@ def _make_chunk(content="", tool_calls=None, done=True):
 
 
 def _tool_stream(name: str, args: dict):
-    """Mock _call_ollama for a single tool call."""
+    """Mock _call_llm for a single tool call."""
     tc = MagicMock()
     tc.function.name = name
     tc.function.arguments = args
@@ -44,7 +44,7 @@ def orc():
 
 def test_read_file_emits_tool_events(orc, tmp_path):
     fake_result = {"path": "README.md", "content": "# Hello", "size": 7}
-    with patch.object(orc, '_call_ollama', side_effect=[
+    with patch.object(orc, '_call_llm', side_effect=[
         _tool_stream("read_file", {"path": "README.md"}),
         _final_stream("The README says Hello."),
     ]), patch("core.fs_tools.read_file", return_value=fake_result):
@@ -65,7 +65,7 @@ def test_read_file_emits_tool_events(orc, tmp_path):
 
 def test_write_file_emits_tool_events(orc):
     fake_result = {"path": "out.txt", "bytes_written": 12, "action": "created"}
-    with patch.object(orc, '_call_ollama', side_effect=[
+    with patch.object(orc, '_call_llm', side_effect=[
         _tool_stream("write_file", {"path": "out.txt", "content": "hello world\n"}),
         _final_stream("File written."),
     ]), patch("core.fs_tools.write_file", return_value=fake_result):
@@ -79,7 +79,7 @@ def test_write_file_emits_tool_events(orc):
 
 def test_run_shell_emits_tool_events(orc):
     fake_result = {"command": "ls", "cwd": ".", "exit_code": 0, "stdout": "file.txt\n", "stderr": "", "truncated": False}
-    with patch.object(orc, '_call_ollama', side_effect=[
+    with patch.object(orc, '_call_llm', side_effect=[
         _tool_stream("run_shell", {"command": "ls"}),
         _final_stream("Files: file.txt"),
     ]), patch("core.shell_tools.run_shell", return_value=fake_result):
@@ -93,7 +93,7 @@ def test_run_shell_emits_tool_events(orc):
 
 def test_github_list_repos_emits_tool_events(orc):
     fake_result = {"repos": [{"name": "user/repo"}], "count": 1}
-    with patch.object(orc, '_call_ollama', side_effect=[
+    with patch.object(orc, '_call_llm', side_effect=[
         _tool_stream("github_list_repos", {}),
         _final_stream("You have 1 repo."),
     ]), patch("core.github_tools.github_list_repos", return_value=fake_result):
@@ -108,7 +108,7 @@ def test_github_list_repos_emits_tool_events(orc):
 def test_tool_result_added_to_history(orc):
     """Tool result must be injected as a 'tool' role message for the model."""
     fake_result = {"path": "a.py", "content": "x = 1", "size": 5}
-    with patch.object(orc, '_call_ollama', side_effect=[
+    with patch.object(orc, '_call_llm', side_effect=[
         _tool_stream("read_file", {"path": "a.py"}),
         _final_stream("x equals 1."),
     ]), patch("core.fs_tools.read_file", return_value=fake_result):
@@ -129,7 +129,7 @@ def test_confirmation_required_result_reaches_model(orc):
         "path": "important.txt",
         "message": "This will permanently delete 'important.txt'. Ask the user to confirm.",
     }
-    with patch.object(orc, '_call_ollama', side_effect=[
+    with patch.object(orc, '_call_llm', side_effect=[
         _tool_stream("delete_file", {"path": "important.txt"}),
         _final_stream("I need your confirmation before deleting important.txt."),
     ]), patch("core.fs_tools.delete_file", return_value=confirmation_resp):
@@ -154,7 +154,7 @@ def test_shell_dangerous_command_confirmation_flow(orc):
         "matched": "rm with -r/-f flag",
         "message": "Destructive operation. Ask user to confirm, then retry with force=true.",
     }
-    with patch.object(orc, '_call_ollama', side_effect=[
+    with patch.object(orc, '_call_llm', side_effect=[
         _tool_stream("run_shell", {"command": "rm -rf ."}),
         _final_stream("That command is dangerous. Do you want me to proceed?"),
     ]), patch("core.shell_tools.run_shell", return_value=confirmation_resp):
@@ -171,7 +171,7 @@ def test_shell_dangerous_command_confirmation_flow(orc):
 def test_tool_error_result_reaches_model(orc):
     """Tool errors must be passed back to the model, not silently dropped."""
     error_result = {"error": "File not found: missing.txt"}
-    with patch.object(orc, '_call_ollama', side_effect=[
+    with patch.object(orc, '_call_llm', side_effect=[
         _tool_stream("read_file", {"path": "missing.txt"}),
         _final_stream("That file doesn't exist."),
     ]), patch("core.fs_tools.read_file", return_value=error_result):
@@ -188,7 +188,7 @@ def test_tool_error_result_reaches_model(orc):
 # ── Unknown tool fallback ─────────────────────────────────────────────────────
 
 def test_unknown_tool_returns_error_to_model(orc):
-    with patch.object(orc, '_call_ollama', side_effect=[
+    with patch.object(orc, '_call_llm', side_effect=[
         _tool_stream("nonexistent_tool", {}),
         _final_stream("I couldn't do that."),
     ]):

@@ -18,7 +18,7 @@ def _make_chunk(content="", tool_calls=None, done=True):
 
 
 def _tool_call_stream(query="test"):
-    """Mock _call_ollama return for a web_search tool call."""
+    """Mock _call_llm return for a web_search tool call."""
     tool_call = MagicMock()
     tool_call.function.name = "web_search"
     tool_call.function.arguments = {"query": query, "num_results": 5}
@@ -26,7 +26,7 @@ def _tool_call_stream(query="test"):
 
 
 def _fetch_url_stream(url="https://example.com"):
-    """Mock _call_ollama return for a fetch_url tool call."""
+    """Mock _call_llm return for a fetch_url tool call."""
     tool_call = MagicMock()
     tool_call.function.name = "fetch_url"
     tool_call.function.arguments = {"url": url}
@@ -34,7 +34,7 @@ def _fetch_url_stream(url="https://example.com"):
 
 
 def _final_stream(content="Answer."):
-    """Mock _call_ollama return for a final answer."""
+    """Mock _call_llm return for a final answer."""
     return iter([_make_chunk(content=content, tool_calls=None, done=True)])
 
 
@@ -64,7 +64,7 @@ def orchestrator():
 
 def test_historical_fact_no_search(orchestrator):
     """Historical facts should be answered without triggering a search."""
-    with patch.object(orchestrator, '_call_ollama', return_value=_final_stream("William Shakespeare wrote Hamlet.")), \
+    with patch.object(orchestrator, '_call_llm', return_value=_final_stream("William Shakespeare wrote Hamlet.")), \
          patch.object(orchestrator.search_engine, 'search') as mock_search:
         events, content = _consume(orchestrator.stream_chat("Who wrote Hamlet?"))
         mock_search.assert_not_called()
@@ -73,7 +73,7 @@ def test_historical_fact_no_search(orchestrator):
 
 def test_current_event_triggers_search(orchestrator):
     """Events after the knowledge cutoff should trigger a web search."""
-    with patch.object(orchestrator, '_call_ollama', side_effect=[
+    with patch.object(orchestrator, '_call_llm', side_effect=[
         _tool_call_stream("2026 Super Bowl"),
         _final_stream("The Eagles won the 2026 Super Bowl."),
     ]), patch.object(orchestrator.search_engine, 'search', return_value=FAKE_SEARCH_RESULTS) as mock_search:
@@ -84,7 +84,7 @@ def test_current_event_triggers_search(orchestrator):
 
 def test_weather_query_triggers_search(orchestrator):
     """Time-sensitive queries should trigger a web search."""
-    with patch.object(orchestrator, '_call_ollama', side_effect=[
+    with patch.object(orchestrator, '_call_llm', side_effect=[
         _tool_call_stream("weather today"),
         _final_stream("It is sunny today."),
     ]), patch.object(orchestrator.search_engine, 'search', return_value=FAKE_SEARCH_RESULTS) as mock_search:
@@ -95,7 +95,7 @@ def test_weather_query_triggers_search(orchestrator):
 
 def test_general_knowledge_no_search(orchestrator):
     """General knowledge questions should not trigger a search."""
-    with patch.object(orchestrator, '_call_ollama', return_value=_final_stream("Photosynthesis is the process...")), \
+    with patch.object(orchestrator, '_call_llm', return_value=_final_stream("Photosynthesis is the process...")), \
          patch.object(orchestrator.search_engine, 'search') as mock_search:
         events, content = _consume(orchestrator.stream_chat("Explain what photosynthesis is"))
         mock_search.assert_not_called()
@@ -104,7 +104,7 @@ def test_general_knowledge_no_search(orchestrator):
 
 def test_search_done_event_contains_results(orchestrator):
     """search_done event should carry result count and results list."""
-    with patch.object(orchestrator, '_call_ollama', side_effect=[
+    with patch.object(orchestrator, '_call_llm', side_effect=[
         _tool_call_stream("test query"),
         _final_stream("Done."),
     ]), patch.object(orchestrator.search_engine, 'search', return_value=FAKE_SEARCH_RESULTS):
@@ -135,7 +135,7 @@ def test_reset_conversation(orchestrator):
 def test_fetch_url_tool_dispatch(orchestrator):
     """fetch_url tool call should yield fetch_start/fetch_done events and pass page content to model."""
     fake_page = "Full page content from example.com"
-    with patch.object(orchestrator, '_call_ollama', side_effect=[
+    with patch.object(orchestrator, '_call_llm', side_effect=[
         _fetch_url_stream("https://example.com"),
         _final_stream("The page says: Full page content."),
     ]), patch('core.url_fetcher.fetch_url', return_value=fake_page) as mock_fetch:
@@ -177,7 +177,7 @@ def test_accumulated_tool_calls_intermediate_chunk(orchestrator):
     patched.tool_calls = [tool_call]
     final.message.model_copy = MagicMock(return_value=patched)
 
-    with patch.object(orchestrator, '_call_ollama', side_effect=[
+    with patch.object(orchestrator, '_call_llm', side_effect=[
         iter([intermediate, final]),
         _final_stream("Found it."),
     ]), patch.object(orchestrator.search_engine, 'search', return_value=FAKE_SEARCH_RESULTS):
@@ -195,7 +195,7 @@ def test_fetch_context_event_emitted_after_fetch_url(orchestrator):
     """
     fake_page = "A" * 500  # longer than 300 to verify truncation
 
-    with patch.object(orchestrator, '_call_ollama', side_effect=[
+    with patch.object(orchestrator, '_call_llm', side_effect=[
         _fetch_url_stream("https://example.com/article"),
         _final_stream("The article says something."),
     ]), patch('core.url_fetcher.fetch_url', return_value=fake_page):
@@ -218,7 +218,7 @@ def test_fetch_context_event_emitted_after_fetch_url(orchestrator):
 
 def test_fetch_context_not_emitted_without_fetch(orchestrator):
     """fetch_context must not be emitted when no fetch_url tool call was made."""
-    with patch.object(orchestrator, '_call_ollama', return_value=_final_stream("Plain answer.")):
+    with patch.object(orchestrator, '_call_llm', return_value=_final_stream("Plain answer.")):
         events, _ = _consume(orchestrator.stream_chat("What is 2+2?"))
 
     assert not any(e["type"] == "fetch_context" for e in events)
@@ -236,7 +236,7 @@ def test_fetch_context_multiple_fetches(orchestrator):
     fetch2.function.name = "fetch_url"
     fetch2.function.arguments = {"url": "https://beta.com"}
 
-    with patch.object(orchestrator, '_call_ollama', side_effect=[
+    with patch.object(orchestrator, '_call_llm', side_effect=[
         iter([_make_chunk(content="", tool_calls=[fetch1], done=True)]),
         iter([_make_chunk(content="", tool_calls=[fetch2], done=True)]),
         _final_stream("Done."),
@@ -262,7 +262,7 @@ def test_rag_context_event_emitted_when_chunks_retrieved(orchestrator):
         {"source": "report.pdf", "score": 0.87, "text": "Operating costs remained stable."},
     ]
 
-    with patch.object(orchestrator, '_call_ollama', return_value=_final_stream("Revenue grew.")), \
+    with patch.object(orchestrator, '_call_llm', return_value=_final_stream("Revenue grew.")), \
          patch.object(orchestrator.rag_engine, 'query', return_value=fake_chunks), \
          patch.object(type(orchestrator.rag_engine), 'chunk_count',
                       new_callable=PropertyMock, return_value=5):
@@ -284,7 +284,7 @@ def test_rag_context_event_emitted_when_chunks_retrieved(orchestrator):
 
 def test_rag_context_not_emitted_when_no_chunks(orchestrator):
     """rag_context must not be emitted when RAG returns no chunks (empty index or filtered out)."""
-    with patch.object(orchestrator, '_call_ollama', return_value=_final_stream("Plain answer.")), \
+    with patch.object(orchestrator, '_call_llm', return_value=_final_stream("Plain answer.")), \
          patch.object(orchestrator.rag_engine, 'query', return_value=[]), \
          patch.object(type(orchestrator.rag_engine), 'chunk_count',
                       new_callable=PropertyMock, return_value=0):
@@ -307,7 +307,7 @@ def test_rag_score_threshold_bypassed_for_same_turn_attachment(orchestrator):
         "warning": None,
     }]
 
-    with patch.object(orchestrator, '_call_ollama', return_value=_final_stream("Here is the summary.")), \
+    with patch.object(orchestrator, '_call_llm', return_value=_final_stream("Here is the summary.")), \
          patch.object(orchestrator.rag_engine, 'query', return_value=[]) as mock_query, \
          patch.object(orchestrator.rag_engine, 'index', return_value=3), \
          patch.object(type(orchestrator.rag_engine), 'chunk_count', new_callable=PropertyMock, return_value=3):
@@ -323,7 +323,7 @@ def test_rag_score_threshold_bypassed_for_same_turn_attachment(orchestrator):
 
 def test_stats_event_emitted_before_done(orchestrator):
     """stats event must be emitted before done on every successful turn."""
-    with patch.object(orchestrator, '_call_ollama', return_value=_final_stream("Answer.")):
+    with patch.object(orchestrator, '_call_llm', return_value=_final_stream("Answer.")):
         events, _ = _consume(orchestrator.stream_chat("Hello"))
 
     stats_events = [e for e in events if e["type"] == "stats"]
@@ -366,7 +366,7 @@ def test_stats_token_capture_with_real_counts(orchestrator):
     chunk.prompt_eval_count = 1024
     chunk.eval_count = 32
 
-    with patch.object(orchestrator, '_call_ollama', return_value=iter([chunk])):
+    with patch.object(orchestrator, '_call_llm', return_value=iter([chunk])):
         _consume(orchestrator.stream_chat("Hello"))
 
     assert orchestrator.last_prompt_tokens == 1024

@@ -1,15 +1,17 @@
 """
-RAG engine for the ollama Search Tool.
+RAG engine for Mira.
 
-Pipeline: chunk → embed (nomic-embed-text via Ollama) → store (ChromaDB in-memory)
-          → retrieve (cosine similarity) → rerank (CrossEncoder)
+Pipeline: chunk → embed → store (ChromaDB in-memory) → retrieve → rerank (CrossEncoder)
+
+Embedding backend: Ollama (ollama.embed) or oMLX/OpenAI-compatible (/v1/embeddings).
+Configured via EMBED_BACKEND in config / mira.yaml.
 
 Key design decisions:
 - EphemeralClient: fully in-memory, no SQLite/persistence issues
 - Manual metadata filtering for remove(): where-clause API is unreliable in ChromaDB 1.x
 - clear() recreates the client — collection.delete() alone does not release RAM reliably
 - CrossEncoder is loaded lazily but pre-warmed in a background thread at startup
-- ollama.embed() batches multiple texts in one HTTP call (ollama >= 0.5)
+- Batch embedding: 64 texts per call for efficiency
 """
 
 import logging
@@ -19,9 +21,10 @@ from typing import List, Dict
 
 import chromadb
 import ollama
+import openai as _openai
 
 from .config import (
-    OLLAMA_HOST,
+    OLLAMA_HOST, EMBED_BACKEND, EMBED_HOST,
     EMBED_MODEL, RERANK_MODEL,
     RAG_CHUNK_SIZE, RAG_CHUNK_OVERLAP,
     RAG_RETRIEVE_K, RAG_RERANK_TOP_K,
@@ -40,7 +43,15 @@ class RagEngine:
     """In-memory RAG index for a single chat session."""
 
     def __init__(self):
-        self._ollama = ollama.Client(host=OLLAMA_HOST)
+        if EMBED_BACKEND == "ollama":
+            self._ollama = ollama.Client(host=EMBED_HOST)
+            self._oai_embed = None
+        else:
+            self._ollama = None
+            base = EMBED_HOST.rstrip("/")
+            if not base.endswith("/v1"):
+                base += "/v1"
+            self._oai_embed = _openai.OpenAI(base_url=base, api_key="none")
         self._reranker = None
         self._reranker_lock = threading.Lock()
         self._init_db()
@@ -178,13 +189,20 @@ class RagEngine:
         return chunks
 
     def _embed(self, texts: List[str]) -> List[List[float]]:
-        """Batch-embed texts using Ollama (nomic-embed-text)."""
-        response = self._ollama.embed(
-            model=EMBED_MODEL,
-            input=texts,
-            options={"num_ctx": 2048},  # matches nomic-embed-text training context
-        )
-        return response.embeddings
+        """Batch-embed texts using the configured embedding backend."""
+        if EMBED_BACKEND == "ollama":
+            response = self._ollama.embed(
+                model=EMBED_MODEL,
+                input=texts,
+                options={"num_ctx": 2048},
+            )
+            return response.embeddings
+        else:
+            response = self._oai_embed.embeddings.create(
+                model=EMBED_MODEL,
+                input=texts,
+            )
+            return [item.embedding for item in response.data]
 
     def _load_reranker(self):
         """Load the CrossEncoder model (thread-safe, called once)."""

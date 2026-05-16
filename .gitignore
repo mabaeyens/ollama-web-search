@@ -57,3 +57,6 @@ start-mira-server.sh
 
 # Local collaboration notes
 COLLABORATION_NOTES.md
+
+# Local runtime config (copy from mira.yaml.example)
+mira.yaml

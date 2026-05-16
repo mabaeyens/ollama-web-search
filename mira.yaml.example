@@ -1,0 +1,18 @@
+# Mira local configuration — copy to mira.yaml and edit.
+# mira.yaml is git-ignored; mira.yaml.example is committed.
+# All fields are optional; omit any to keep the built-in default.
+
+# ── LLM backend ──────────────────────────────────────────────────────────────
+backend: omlx              # ollama | omlx
+model: Qwen3.6-35B-A3B    # model name as shown in the backend's /v1/models list
+host: http://localhost:8000
+
+# ── Embedding backend (for RAG) ───────────────────────────────────────────────
+embed_backend: omlx        # ollama | omlx
+embed_model: nomic-embed-text
+embed_host: http://localhost:8000
+
+# ── Context window ────────────────────────────────────────────────────────────
+# Qwen3.6-35B-A3B supports 262144 natively.
+# Gemma4:26b works well at 65536.
+context_window: 262144
