@@ -330,6 +330,13 @@ class ChatOrchestrator:
                             accumulated_tool_calls = chunk.message.tool_calls
                             logger.info("chunk HAS tool_calls: done=%s tool_calls=%s", chunk.done, chunk.message.tool_calls)
 
+                        # Ollama yields thinking content in chunk.message.thinking when
+                        # think=True; emit it as a thinking event so the UI can show it
+                        # collapsed, then continue to the normal content path.
+                        thinking_token = getattr(chunk.message, "thinking", None) or ""
+                        if thinking_token:
+                            yield {"type": "thinking", "content": thinking_token}
+
                         raw_token = chunk.message.content or ""
                         if raw_token:
                             think_buf += raw_token
@@ -547,7 +554,8 @@ class ChatOrchestrator:
         """Call the configured LLM backend with streaming. Mockable in tests."""
         if self.backend == "ollama":
             return self._ollama.chat(
-                model=self.model, messages=messages, tools=tools, stream=True
+                model=self.model, messages=messages, tools=tools, stream=True,
+                think=thinking_enabled,
             )
         else:
             extra: dict = {}

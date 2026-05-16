@@ -36,7 +36,7 @@ static/index.html    — single-page web UI (vanilla HTML/CSS/JS + marked.js)
 
 | Event | Payload | Meaning |
 |-------|---------|---------|
-| `thinking` | — | Model is processing |
+| `thinking` | `content` (optional) | Model is processing; Ollama streaming thinking text arrives in `content` |
 | `token` | `content` | Answer token (buffered by CLI, streamed by web) |
 | `search_start` | `query` | Web search beginning |
 | `search_done` | `query, count, results` | Search complete; `results` is `[{title, url}]` (snippet stripped before SSE) |
@@ -53,6 +53,8 @@ static/index.html    — single-page web UI (vanilla HTML/CSS/JS + marked.js)
 | `title` | `conv_id, title` | New conversation title generated — emitted after `done`, only on first turn |
 | `compress` | `message` | Context window compressed — emitted after `done` when `context_pct` exceeded threshold |
 | `heartbeat` | — | Keepalive — emitted periodically during long tool calls to prevent connection timeout |
+
+**Thinking toggle:** `stream_chat()` accepts `thinking_enabled: bool = True`. For oMLX this passes `enable_thinking` in `extra_body`; for Ollama it passes `think=thinking_enabled` to the client. Both backends support thinking mode — Gemma4:26b yields thinking text in `chunk.message.thinking`; Qwen3.6 yields `<think>…</think>` tags in `chunk.message.content`. The server form field `thinking_enabled` (default `true`) flows through from the app's thinking toggle button in the input bar.
 
 **Mockable boundary:** `_call_llm()` is the single point tests mock — returns an iterable of stream chunks with `.message.content`, `.message.tool_calls`, `.done`.
 
@@ -124,6 +126,8 @@ The native clients (mira-apps) connect to this server over HTTP/HTTPS. Key integ
 - **Cancel:** iOS/macOS send `POST /cancel` then discard the stream; the server rolls back history.
 - **File uploads:** Sent as multipart form-data, same schema as the web UI.
 - **`title` and `compress` events** arrive after `done`; clients must keep the SSE connection open until the server closes it (signalled by the absence of further events, not by a sentinel).
+- **Model switcher:** toolbar label button opens `ModelPickerView` sheet. Tapping an inactive model shows a confirmation step (warns about 30–60 s pause), then calls `POST /backend`. `ChatViewModel.switchBackend(to:)` drives `switchStatusMessage` through timed stages ("Stopping…", "Starting…", "Loading weights…", "Almost ready…") which `ModelPickerView` displays during the switch.
+- **Thinking toggle:** brain icon in `InputBar` toggles `thinkingEnabled`; passed as `thinking_enabled` form field to `POST /chat`. Works on both backends.
 
 See `mira-apps/OllamaSearch/Shared/Networking/` for client implementation.
 
@@ -156,7 +160,8 @@ Behaviours that are intentional and must not be removed:
 
 - **Gemma4 (Ollama):** emits `tool_calls` in an intermediate chunk (`done=False`) — handled by `accumulated_tool_calls` in `orchestrator.py`.
 - **Gemma4 (Ollama):** occasionally emits LaTeX (e.g. `$\rightarrow$`) — `preprocessLatex()` in `index.html` converts to Unicode.
-- **Qwen3.6 (oMLX):** emits `<think>…</think>` blocks — the streaming loop detects and strips them; thinking content is silently consumed and never reaches token events or `full_content`. Do not remove.
+- **Gemma4 (Ollama) thinking:** when `think=True`, Ollama yields thinking text in `chunk.message.thinking` (separate from `chunk.message.content`). The streaming loop checks this field and emits `thinking` events with the content before processing normal tokens.
+- **Qwen3.6 (oMLX) thinking:** emits `<think>…</think>` blocks in the content stream — the streaming loop detects and strips them; thinking content is silently consumed and never reaches token events or `full_content`. Do not remove.
 - **Qwen3.6 (oMLX):** tool calls arrive fully assembled in the done chunk (OpenAI streaming format), not as intermediate fragments.
 
 ## Test patterns
