@@ -1,6 +1,34 @@
 # Architecture Reference
 
-Detailed reference for subsystems. Read this file when working on events, RAG, cancel, or search config.
+Detailed reference for subsystems. Read this file when working on events, RAG, cancel, config, or model quirks.
+
+## Module map
+
+```
+main.py (CLI)     server.py (FastAPI + SSE)
+        └─────────────────┘
+                 │
+      core/orchestrator.py → ChatOrchestrator
+            │  stream_chat(user_message, attachments=None, thinking_enabled=True) → yields events
+            ├── _call_llm() → ollama.chat() OR openai.chat.completions.create()
+            ├── core/search_engine.py → SearchEngine → ddgs.text()
+            └── core/rag_engine.py → RagEngine
+                      ├── ollama.embed() OR openai.embeddings.create() (EMBED_BACKEND)
+                      ├── chromadb.EphemeralClient (in-memory)
+                      └── CrossEncoder (sentence-transformers)
+
+core/config.py       — all tunables; loads overrides from mira.yaml (git-ignored)
+core/file_handler.py — load_file() / load_file_bytes(): PDF→RAG, HTML→text, image→base64
+core/tools.py        — OpenAI-compatible tool schema for web_search and all tools
+core/prompts.py      — build_system_prompt() injects today's date + search rules
+core/formatter.py    — Rich console helpers (CLI only)
+core/db.py           — SQLite conversation persistence
+core/workspace.py    — sandbox path enforcement
+core/fs_tools.py     — filesystem tool implementations
+core/shell_tools.py  — shell execution tool
+core/github_tools.py — GitHub API tool
+static/index.html    — single-page web UI (vanilla HTML/CSS/JS + marked.js)
+```
 
 ## Event protocol
 
@@ -26,7 +54,7 @@ Detailed reference for subsystems. Read this file when working on events, RAG, c
 | `compress` | `message` | Context window compressed — emitted after `done` when `context_pct` exceeded threshold |
 | `heartbeat` | — | Keepalive — emitted periodically during long tool calls to prevent connection timeout |
 
-**Mockable boundary:** `_call_ollama()` is the single point tests mock — returns an iterable of stream chunks with `.message.content`, `.message.tool_calls`, `.done`.
+**Mockable boundary:** `_call_llm()` is the single point tests mock — returns an iterable of stream chunks with `.message.content`, `.message.tool_calls`, `.done`.
 
 ## RAG internals
 
@@ -80,6 +108,7 @@ This is transparent to clients — the next turn proceeds normally with a shorte
 | `GET/POST` | `/conversations` | List / create conversations |
 | `PATCH/DELETE` | `/conversations/{id}` | Rename / delete conversation |
 | `GET` | `/conversations/{id}/messages` | Full message history |
+| `GET` | `/info` | Model name, backend, host, context_window, hardware |
 | `GET` | `/rag/documents` | List indexed RAG documents |
 | `DELETE` | `/rag/documents/{name}` | Remove a RAG document |
 
@@ -102,11 +131,37 @@ Ollama offers a free-tier web search API, but signup requires a phone number and
 
 `USE_NATIVE_SEARCH` is `False` in `config.py` — do not change it.
 
+## Configuration reference
+
+**External config (preferred):** copy `mira.yaml.example` → `mira.yaml` (git-ignored) and edit:
+
+| Field | Default | Notes |
+|-------|---------|-------|
+| `backend` | `omlx` | `omlx` or `ollama` |
+| `model` | `Qwen3.6-35B-A3B` | Model name as shown in the backend |
+| `host` | `http://localhost:8000` | LLM server URL |
+| `embed_backend` | same as `backend` | `omlx` or `ollama` |
+| `embed_model` | `nomic-embed-text` | Embedding model |
+| `embed_host` | same as `host` | Embedding server URL |
+| `context_window` | `262144` | Token context (65536 for Gemma4:26b) |
+
+**RAG / search knobs in `core/config.py`** (no `mira.yaml` equivalent — edit directly):
+`USE_NATIVE_SEARCH`, `MAX_SEARCH_RESULTS`, `SEARCH_TIMEOUT`, `MAX_RETRIES`, `MAX_TOOL_STEPS`, `VERBOSE_DEFAULT`, `RERANK_MODEL`, `RAG_CHUNK_SIZE`, `RAG_CHUNK_OVERLAP`, `RAG_RETRIEVE_K`, `RAG_RERANK_TOP_K`, `RAG_SCORE_THRESHOLD`, `RAG_MAX_CHUNKS`
+
+## Model quirks
+
+Behaviours that are intentional and must not be removed:
+
+- **Gemma4 (Ollama):** emits `tool_calls` in an intermediate chunk (`done=False`) — handled by `accumulated_tool_calls` in `orchestrator.py`.
+- **Gemma4 (Ollama):** occasionally emits LaTeX (e.g. `$\rightarrow$`) — `preprocessLatex()` in `index.html` converts to Unicode.
+- **Qwen3.6 (oMLX):** emits `<think>…</think>` blocks — the streaming loop detects and strips them; thinking content is silently consumed and never reaches token events or `full_content`. Do not remove.
+- **Qwen3.6 (oMLX):** tool calls arrive fully assembled in the done chunk (OpenAI streaming format), not as intermediate fragments.
+
 ## Test patterns
 
-`tests/test_queries.py` — mocks `_call_ollama` via `patch.object`:
+`tests/test_queries.py` — mocks `_call_llm` via `patch.object`:
 ```python
-patch.object(orchestrator, '_call_ollama', return_value=iter([chunk]))
+patch.object(orchestrator, '_call_llm', return_value=iter([chunk]))
 # chunk is a MagicMock with .message.content, .message.tool_calls, .done
 ```
 Covers: search trigger, search_done payload, fetch_url dispatch, Gemma4 intermediate tool calls (`accumulated_tool_calls`), RAG threshold bypass, verbose toggle, conversation reset.
