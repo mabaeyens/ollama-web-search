@@ -59,6 +59,8 @@ python main.py
 python server.py
 ```
 
+For remote access (iPad via Tailscale), the server also listens on HTTPS port **8443** — configure `SSL_CERTFILE` / `SSL_KEYFILE` in the plist (see [macOS LaunchAgent](#macos-launchagent-optional)) and connect to `https://<mac-hostname>:8443`.
+
 Mira starts the configured inference backend automatically. If oMLX or Ollama is already running, it reuses the existing process.
 
 ### Ollama env vars
