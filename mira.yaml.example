@@ -5,12 +5,12 @@
 # ── LLM backend ──────────────────────────────────────────────────────────────
 backend: omlx              # ollama | omlx
 model: Qwen3.6-35B-A3B    # model name as shown in the backend's /v1/models list
-host: http://localhost:8000
+host: http://localhost:8080 # oMLX default; Ollama default is http://localhost:11434
 
 # ── Embedding backend (for RAG) ───────────────────────────────────────────────
 embed_backend: omlx        # ollama | omlx
 embed_model: nomic-embed-text
-embed_host: http://localhost:8000
+embed_host: http://localhost:8080
 
 # ── Context window ────────────────────────────────────────────────────────────
 # Qwen3.6-35B-A3B supports 262144 natively.

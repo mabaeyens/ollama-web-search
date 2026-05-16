@@ -70,6 +70,18 @@ class RagEngine:
             metadata={"hnsw:space": "cosine"},
         )
 
+    def reinitialize_client(self, embed_backend: str, embed_host: str) -> None:
+        """Switch embedding backend at runtime."""
+        if embed_backend == "ollama":
+            self._ollama = ollama.Client(host=embed_host)
+            self._oai_embed = None
+        else:
+            self._ollama = None
+            base = embed_host.rstrip("/")
+            if not base.endswith("/v1"):
+                base += "/v1"
+            self._oai_embed = _openai.OpenAI(base_url=base, api_key="none")
+
     def clear(self) -> None:
         """Drop and recreate the in-memory store, releasing all RAM."""
         del self._collection

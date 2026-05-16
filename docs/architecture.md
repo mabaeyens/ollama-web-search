@@ -109,6 +109,8 @@ This is transparent to clients — the next turn proceeds normally with a shorte
 | `PATCH/DELETE` | `/conversations/{id}` | Rename / delete conversation |
 | `GET` | `/conversations/{id}/messages` | Full message history |
 | `GET` | `/info` | Model name, backend, host, context_window, hardware |
+| `GET` | `/backend` | Current backend/model/host/context_window |
+| `POST` | `/backend` | Switch inference backend (`{"backend": "ollama"\|"omlx"}`); blocks until ready |
 | `GET` | `/rag/documents` | List indexed RAG documents |
 | `DELETE` | `/rag/documents/{name}` | Remove a RAG document |
 

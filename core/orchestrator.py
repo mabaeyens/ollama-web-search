@@ -77,6 +77,7 @@ class ChatOrchestrator:
         self.model = model
         self.verbose = verbose
         self.backend = BACKEND
+        self.context_window = CONTEXT_WINDOW
 
         if self.backend == "ollama":
             self._ollama = ollama.Client(host=OLLAMA_HOST)
@@ -114,6 +115,21 @@ class ChatOrchestrator:
         else:
             self.system_prompt_added = False
             self._add_system_prompt()
+
+    def reinitialize_client(self, backend: str, model: str, host: str,
+                            embed_backend: str, embed_host: str,
+                            context_window: int) -> None:
+        """Switch to a different inference backend at runtime without restarting."""
+        self.backend = backend
+        self.model = model
+        self.context_window = context_window
+        if backend == "ollama":
+            self._ollama = ollama.Client(host=host)
+            self._oai = None
+        else:
+            self._ollama = None
+            self._oai = _make_oai_client(host)
+        self.rag_engine.reinitialize_client(embed_backend, embed_host)
 
     def _add_system_prompt(self):
         if not self.system_prompt_added:
@@ -634,9 +650,9 @@ class ChatOrchestrator:
 
     @property
     def context_pct(self) -> int:
-        if not CONTEXT_WINDOW or self.last_prompt_tokens == 0:
+        if not self.context_window or self.last_prompt_tokens == 0:
             return 0
-        return min(100, round(self.last_prompt_tokens / CONTEXT_WINDOW * 100))
+        return min(100, round(self.last_prompt_tokens / self.context_window * 100))
 
     def reset_conversation(self):
         self.conversation_history = []

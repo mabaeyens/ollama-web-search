@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import uvicorn
-from fastapi import Depends, FastAPI, Form, HTTPException, UploadFile, File
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -27,6 +27,7 @@ import core.db as db
 import core.file_handler as file_handler
 from core.config import VERBOSE_DEFAULT, COMPRESS_THRESHOLD, MODEL_NAME, BACKEND, OLLAMA_HOST, CONTEXT_WINDOW
 from core.orchestrator import ChatOrchestrator
+from core import backend_manager as _bm
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,6 +41,14 @@ _init_lock: asyncio.Lock = asyncio.Lock()
 _active_cancels: Dict[str, threading.Event] = {}
 _initialized = False
 _ollama_ready = False
+
+# Runtime state — updated on every backend switch
+_rt: Dict = {
+    "backend": BACKEND,
+    "model": MODEL_NAME,
+    "host": OLLAMA_HOST,
+    "context_window": CONTEXT_WINDOW,
+}
 
 
 @asynccontextmanager
@@ -121,14 +130,55 @@ async def health():
 @app.get("/info")
 async def info():
     """Return server/model metadata for display in the client app."""
-    hardware = "Apple Silicon (MLX)" if BACKEND == "omlx" else "Ollama"
+    hardware = "Apple Silicon (MLX)" if _rt["backend"] == "omlx" else "Ollama"
     return {
-        "model": MODEL_NAME,
-        "backend": BACKEND,
-        "host": OLLAMA_HOST,
-        "context_window": CONTEXT_WINDOW,
+        "model": _rt["model"],
+        "backend": _rt["backend"],
+        "host": _rt["host"],
+        "context_window": _rt["context_window"],
         "hardware": hardware,
     }
+
+
+@app.get("/backend")
+async def get_backend(_=Depends(_ready)):
+    return {
+        "backend": _rt["backend"],
+        "model": _rt["model"],
+        "host": _rt["host"],
+        "context_window": _rt["context_window"],
+    }
+
+
+@app.post("/backend")
+async def switch_backend(request: Request, _=Depends(_ready)):
+    global _ollama_ready
+    body = await request.json()
+    target = body.get("backend", "")
+    if target not in ("ollama", "omlx"):
+        raise HTTPException(status_code=400, detail="backend must be 'ollama' or 'omlx'")
+    if target == _rt["backend"]:
+        return {"status": "ok", "backend": target, "message": "already active"}
+    _ollama_ready = False
+    try:
+        async with _orch_lock:
+            loop = asyncio.get_event_loop()
+            preset = await loop.run_in_executor(None, _bm.switch_to, target)
+            orchestrator.reinitialize_client(
+                backend=preset["backend"],
+                model=preset["model"],
+                host=preset["host"],
+                embed_backend=preset["embed_backend"],
+                embed_host=preset["embed_host"],
+                context_window=preset["context_window"],
+            )
+            _rt.update(preset)
+    except Exception as e:
+        logger.error("Backend switch failed: %s", e)
+        _ollama_ready = True
+        raise HTTPException(status_code=500, detail=str(e))
+    _ollama_ready = True
+    return {"status": "ok", "backend": _rt["backend"], "model": _rt["model"]}
 
 
 @app.post("/cancel")
