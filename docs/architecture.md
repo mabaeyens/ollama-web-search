@@ -137,6 +137,21 @@ Ollama offers a free-tier web search API, but signup requires a phone number and
 
 `USE_NATIVE_SEARCH` is `False` in `config.py` — do not change it.
 
+## oMLX model setup
+
+oMLX discovers models from `~/.omlx/models/`. Each subdirectory becomes a model ID:
+
+```
+~/.omlx/models/
+└── Qwen3.6-35B-A3B/        ← model_id used in API calls
+    ├── config.json
+    └── *.safetensors
+```
+
+Download the model via the oMLX admin UI (`http://localhost:8080/admin`) before starting Mira with `backend: omlx`. The `model` field in `mira.yaml` must match the directory name exactly.
+
+On Mira startup, `backend_manager.ensure_backend_running()` starts oMLX (or Ollama) automatically if not already running. The app's `/health` endpoint returns `backend_ready: false` until the inference server is reachable with the configured model, and the iOS/macOS chat view shows a banner with a "Start" button during that time.
+
 ## Configuration reference
 
 **External config (preferred):** copy `mira.yaml.example` → `mira.yaml` (git-ignored) and edit:

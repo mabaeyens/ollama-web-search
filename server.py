@@ -88,6 +88,13 @@ async def lifespan(app: FastAPI):
             else:
                 logger.info(f"oMLX backend — model {MODEL_NAME} managed by oMLX server at {OLLAMA_HOST}")
             _ollama_ready = True
+            # Auto-start the inference backend in a background thread so the app is
+            # usable immediately (health returns 200) even while oMLX/Ollama loads.
+            threading.Thread(
+                target=_bm.ensure_backend_running,
+                args=(BACKEND,),
+                daemon=True,
+            ).start()
 
     yield
 
@@ -124,7 +131,10 @@ async def index():
 async def health():
     if not _ollama_ready:
         return JSONResponse({"status": "starting"}, status_code=503)
-    return {"status": "ok"}
+    backend_ready = await asyncio.get_event_loop().run_in_executor(
+        None, _bm.is_backend_ready, _rt["backend"]
+    )
+    return {"status": "ok", "backend_ready": backend_ready}
 
 
 @app.get("/info")

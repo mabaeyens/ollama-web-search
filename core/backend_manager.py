@@ -1,5 +1,6 @@
 """Manages start/stop of inference server processes for runtime backend switching."""
 
+import json
 import logging
 import subprocess
 import time
@@ -48,6 +49,42 @@ def _wait_for_ready(url: str, timeout: int = 60) -> None:
         except Exception:
             time.sleep(1)
     raise TimeoutError(f"Server did not become ready at {url} after {timeout}s")
+
+
+def is_backend_ready(backend: str) -> bool:
+    """Return True if the inference backend is reachable and has the model available."""
+    try:
+        if backend == "omlx":
+            resp = urllib.request.urlopen(OMLX_HOST + "/v1/models", timeout=2)
+            data = json.loads(resp.read())
+            ids = [m.get("id", "") for m in data.get("data", [])]
+            return OMLX_MODEL in ids
+        else:
+            urllib.request.urlopen(OLLAMA_HOST + "/api/version", timeout=2)
+            return True
+    except Exception:
+        return False
+
+
+def ensure_backend_running(backend: str) -> None:
+    """Start the backend if not already reachable. Safe to call on every startup."""
+    if backend == "omlx":
+        # If oMLX is already responding (our process or an external one), skip start.
+        try:
+            urllib.request.urlopen(OMLX_HOST + "/v1/models", timeout=2)
+            logger.info("oMLX already running")
+            return
+        except Exception:
+            pass
+        start_omlx()
+    else:
+        try:
+            urllib.request.urlopen(OLLAMA_HOST + "/api/version", timeout=2)
+            logger.info("Ollama already running")
+            return
+        except Exception:
+            pass
+        start_ollama()
 
 
 def stop_ollama() -> None:
