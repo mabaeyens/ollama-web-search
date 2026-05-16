@@ -565,8 +565,8 @@ class ChatOrchestrator:
         """Call the configured LLM backend with streaming. Mockable in tests."""
         if self.backend == "ollama":
             return self._ollama.chat(
-                model=self.model, messages=messages, tools=tools, stream=True,
-                think=thinking_enabled,
+                model=self.model, messages=_normalize_messages_for_ollama(messages),
+                tools=tools, stream=True, think=thinking_enabled,
             )
         else:
             extra: dict = {}
@@ -692,6 +692,30 @@ def _strip_think(text: str) -> str:
     """Remove <think>...</think> blocks from a string."""
     import re
     return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+
+def _normalize_messages_for_ollama(messages: List[Dict]) -> List[Dict]:
+    """Ollama's Pydantic Message model requires tool_calls[].function.arguments as dict.
+    History stores them as JSON strings (OpenAI wire format). Parse them back."""
+    result = []
+    for msg in messages:
+        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+            msg = dict(msg)
+            tcs = []
+            for tc in msg["tool_calls"]:
+                tc = dict(tc)
+                fn = dict(tc.get("function", {}))
+                args = fn.get("arguments")
+                if isinstance(args, str):
+                    try:
+                        fn["arguments"] = json.loads(args)
+                    except json.JSONDecodeError:
+                        fn["arguments"] = {}
+                tc["function"] = fn
+                tcs.append(tc)
+            msg["tool_calls"] = tcs
+        result.append(msg)
+    return result
 
 
 def _message_to_history_dict(msg) -> dict:
