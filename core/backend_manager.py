@@ -5,6 +5,7 @@ import logging
 import subprocess
 import time
 import urllib.request
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +41,31 @@ PRESETS = {
 _omlx_proc = None
 
 
-def _wait_for_ready(url: str, timeout: int = 60) -> None:
+def _omlx_api_key() -> str:
+    try:
+        cfg = json.loads((Path.home() / ".omlx" / "settings.json").read_text())
+        return cfg["auth"]["api_key"]
+    except Exception:
+        return ""
+
+
+def _omlx_request(path: str, timeout: int = 2):
+    """urlopen to an oMLX endpoint with Bearer auth."""
+    req = urllib.request.Request(
+        OMLX_HOST + path,
+        headers={"Authorization": f"Bearer {_omlx_api_key()}"},
+    )
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+def _wait_for_ready(url: str, timeout: int = 60, *, omlx: bool = False) -> None:
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            urllib.request.urlopen(url, timeout=2)
+            if omlx:
+                _omlx_request("/v1/models")
+            else:
+                urllib.request.urlopen(url, timeout=2)
             return
         except Exception:
             time.sleep(1)
@@ -55,7 +76,7 @@ def is_backend_ready(backend: str) -> bool:
     """Return True if the inference backend is reachable and has the model available."""
     try:
         if backend == "omlx":
-            resp = urllib.request.urlopen(OMLX_HOST + "/v1/models", timeout=2)
+            resp = _omlx_request("/v1/models")
             data = json.loads(resp.read())
             ids = [m.get("id", "") for m in data.get("data", [])]
             return OMLX_MODEL in ids
@@ -71,7 +92,7 @@ def ensure_backend_running(backend: str) -> None:
     if backend == "omlx":
         # If oMLX is already responding (our process or an external one), skip start.
         try:
-            urllib.request.urlopen(OMLX_HOST + "/v1/models", timeout=2)
+            _omlx_request("/v1/models")
             logger.info("oMLX already running")
             return
         except Exception:
@@ -115,7 +136,7 @@ def start_omlx() -> None:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    _wait_for_ready(OMLX_HOST + "/v1/models", timeout=60)
+    _wait_for_ready(OMLX_HOST + "/v1/models", timeout=60, omlx=True)
 
 
 def switch_to(target: str) -> dict:
