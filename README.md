@@ -1,6 +1,13 @@
 # Mira
 
-A local AI assistant powered by **Gemma 4:26b** and **Ollama** with autonomous web search, file attachments, and RAG for large documents. Available as a CLI tool and a local web interface with streaming markdown responses.
+A local AI assistant with autonomous web search, file attachments (PDF/HTML/images/text), and RAG for large documents. Available as a CLI tool and a local web interface with streaming markdown responses.
+
+Supports two local inference backends:
+
+| Backend | Model | Context | Host |
+|---------|-------|---------|------|
+| **oMLX** (default) | Qwen3.6-35B-A3B | 262k tokens | `http://localhost:8080` |
+| **Ollama** | Gemma 4:26b | 64k tokens | `http://localhost:11434` |
 
 ## Features
 
@@ -8,16 +15,27 @@ A local AI assistant powered by **Gemma 4:26b** and **Ollama** with autonomous w
 - **Streaming responses**: Tokens buffered and rendered as formatted markdown
 - **Two interfaces**: Rich CLI and local web UI (FastAPI + SSE)
 - **File attachments**: PDFs (RAG), HTML, images (multimodal), text/code files — tested with books up to 34 MB
-- **RAG**: Large documents chunked, embedded with `nomic-embed-text`, reranked with CrossEncoder — retrieved automatically on every turn, with hallucination guard for meta-queries (summarize, translate)
-- **Private**: Runs entirely on your local machine — no cloud APIs, no API keys
+- **RAG**: Large documents chunked, embedded, reranked with CrossEncoder — retrieved automatically on every turn, with hallucination guard for meta-queries (summarize, translate)
+- **Private**: Runs entirely on your local machine — no cloud APIs, no telemetry
 
 ## Prerequisites
 
-- **Python 3.12+**
-- **Ollama** (v0.20.2+) running locally
-- **uv** package manager
-- **Gemma 4:26b** model: `ollama pull gemma4:26b`
-- **nomic-embed-text** model (for RAG embeddings): `ollama pull nomic-embed-text`
+### oMLX (default)
+
+- **Python 3.12+** and **uv**
+- **oMLX** installed at `/Applications/oMLX.app`
+- API key in `~/.omlx/settings.json` under `auth.api_key`
+
+Mira starts oMLX automatically on launch — no manual server command needed.
+
+### Ollama (alternative)
+
+- **Python 3.12+** and **uv**
+- **Ollama** v0.20.2+ installed and running
+- **Gemma 4:26b**: `ollama pull gemma4:26b`
+- **nomic-embed-text** (RAG embeddings): `ollama pull nomic-embed-text`
+
+Set `backend: ollama` in `mira.yaml` to use Ollama (see [Configuration](#configuration)).
 
 ## Setup
 
@@ -27,35 +45,32 @@ source .venv/bin/activate
 uv sync
 ```
 
-> On first use, the CrossEncoder reranker model (~100MB) downloads automatically from HuggingFace and caches to `~/.cache/huggingface/`.
+> On first use, the CrossEncoder reranker model (~100 MB) downloads automatically from HuggingFace and caches to `~/.cache/huggingface/`.
 
 ## Running
 
-**1. Start the Ollama server** (if not already running as a background service):
+**CLI:**
 ```bash
-ollama serve
+python main.py
 ```
 
-Ollama server settings are configured via env vars in `~/.zprofile` — loaded automatically for every Terminal session, no flags needed:
+**Web interface** — open `http://localhost:8000` in your browser:
+```bash
+python server.py
+```
+
+Mira starts the configured inference backend automatically. If oMLX or Ollama is already running, it reuses the existing process.
+
+### Ollama env vars
+
+When using Ollama, these env vars are loaded from `~/.zprofile` for every Terminal session:
 
 | Variable | Value | Effect |
 |----------|-------|--------|
 | `OLLAMA_CONTEXT_LENGTH` | `65536` | 64k token context window |
 | `OLLAMA_FLASH_ATTENTION` | `1` | Flash attention enabled |
 
-Metal/GPU acceleration is on by default on macOS — no extra flag required.
-
-**2. CLI:**
-```bash
-python main.py
-```
-
-**2. Web interface** — open `http://localhost:8000` in your browser:
-```bash
-python server.py
-```
-
-> `server.py` and `main.py` do **not** start Ollama automatically — they will fail with a connection error if `ollama serve` is not running first.
+Metal/GPU acceleration is on by default on macOS — no extra flag needed.
 
 ## macOS LaunchAgent (optional)
 
@@ -112,45 +127,64 @@ Both filled-in files are git-ignored (they contain local paths). Only the `*.tem
 | PDF (any size) | Always indexed via RAG |
 | HTML | Text extracted (BeautifulSoup); RAG if > 80k chars |
 | Text / code | Injected directly; RAG if > 80k chars |
-| Images | Passed via Ollama multimodal API (base64) |
+| Images | Passed via multimodal API (base64) |
 | Scanned PDF | Warning emitted; no text extractable |
 
 RAG documents persist in the session index across turns — no need to re-attach for follow-up questions. Use `/rag-remove` or Reset to clear.
 
-## Testing
-
-All model, search, and fetch calls are mocked — no Ollama instance needed to run tests.
-
-```bash
-uv run pytest                                              # all tests (28 tests)
-uv run pytest tests/test_queries.py::test_toggle_verbose  # single test
-uv run pytest tests/test_cancel.py                        # cancel/stop tests only
-```
-
-Tests cover: search trigger behaviour, `fetch_url` dispatch, Gemma4 intermediate-chunk tool calls (`accumulated_tool_calls`), RAG threshold bypass for same-turn attachments, verbose toggle, conversation reset, stop/cancel endpoint, event stream abort, history rollback on cancel, stats event emission, token count capture, context % bounds.
-
 ## Configuration
 
-All settings are in `config.py`:
+Copy `mira.yaml.example` to `mira.yaml` and edit. All fields are optional — omit any to keep the built-in default.
+
+```yaml
+backend: omlx              # ollama | omlx
+model: Qwen3.6-35B-A3B
+host: http://localhost:8080
+
+embed_backend: omlx        # ollama | omlx
+embed_model: nomic-embed-text
+embed_host: http://localhost:8080
+
+context_window: 262144
+```
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `MODEL_NAME` | `gemma4:26b` | Ollama chat model |
-| `EMBED_MODEL` | `nomic-embed-text` | Ollama embedding model for RAG |
-| `RERANK_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | CrossEncoder reranker |
-| `USE_NATIVE_SEARCH` | `False` | Disabled — Ollama native search is free-tier but requires a phone-verified account with no privacy guarantees; DuckDuckGo used instead |
+| `backend` | `ollama` | Inference backend: `ollama` or `omlx` |
+| `model` | `gemma4:26b` | Model name as shown in the backend's model list |
+| `host` | `http://localhost:11434` | Backend host URL (`omlx` default: `http://localhost:8080`) |
+| `embed_backend` | same as `backend` | Embedding backend for RAG |
+| `embed_model` | `nomic-embed-text` | Embedding model |
+| `embed_host` | same as `host` | Embedding host URL |
+| `context_window` | `65536` | Token context window (Qwen3.6-35B-A3B: `262144`) |
+
+Additional settings (not user-configurable via `mira.yaml` — edit `core/config.py` only if needed):
+
+| Setting | Default | Description |
+|---------|---------|-------------|
 | `MAX_SEARCH_RESULTS` | `5` | Results per web search |
-| `MAX_TOOL_STEPS` | `5` | Max tool calls per turn |
+| `MAX_TOOL_STEPS` | `10` | Max tool calls per turn |
 | `MAX_RETRIES` | `3` | API error retries per call |
 | `SEARCH_TIMEOUT` | `30` | DuckDuckGo timeout in seconds |
-| `VERBOSE_DEFAULT` | `False` | Start in verbose mode |
-| `OLLAMA_HOST` | `http://localhost:11434` | Override via `OLLAMA_HOST` env var |
+| `RERANK_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | CrossEncoder reranker |
 | `RAG_CHUNK_SIZE` | `400` | Words per RAG chunk |
 | `RAG_CHUNK_OVERLAP` | `40` | Word overlap between chunks |
 | `RAG_RETRIEVE_K` | `10` | Candidates retrieved before reranking |
 | `RAG_RERANK_TOP_K` | `4` | Chunks injected after reranking |
 | `RAG_SCORE_THRESHOLD` | `0.0` | Minimum CrossEncoder score to inject |
 | `RAG_MAX_CHUNKS` | `10000` | Warn when index exceeds this size |
+
+## Testing
+
+All model, search, and fetch calls are mocked — no inference server needed to run tests.
+
+```bash
+uv run pytest                                              # all tests
+uv run pytest tests/test_queries.py::test_toggle_verbose  # single test
+uv run pytest tests/test_cancel.py                        # cancel/stop tests only
+```
+
+Tests cover: search trigger behaviour, `fetch_url` dispatch, intermediate-chunk tool calls (`accumulated_tool_calls`), RAG threshold bypass for same-turn attachments, verbose toggle, conversation reset, stop/cancel endpoint, event stream abort, history rollback on cancel, stats event emission, token count capture, context % bounds.
 
 ## 🛠️ Development Workflow: Human-AI Collaboration
 
