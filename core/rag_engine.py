@@ -51,7 +51,8 @@ class RagEngine:
             base = EMBED_HOST.rstrip("/")
             if not base.endswith("/v1"):
                 base += "/v1"
-            self._oai_embed = _openai.OpenAI(base_url=base, api_key="none")
+            from .orchestrator import _read_omlx_api_key
+            self._oai_embed = _openai.OpenAI(base_url=base, api_key=_read_omlx_api_key())
         self._reranker = None
         self._reranker_lock = threading.Lock()
         self._init_db()
@@ -80,7 +81,8 @@ class RagEngine:
             base = embed_host.rstrip("/")
             if not base.endswith("/v1"):
                 base += "/v1"
-            self._oai_embed = _openai.OpenAI(base_url=base, api_key="none")
+            from .orchestrator import _read_omlx_api_key
+            self._oai_embed = _openai.OpenAI(base_url=base, api_key=_read_omlx_api_key())
 
     def clear(self) -> None:
         """Drop and recreate the in-memory store, releasing all RAM."""

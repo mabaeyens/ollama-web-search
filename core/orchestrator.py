@@ -2,7 +2,9 @@
 
 import json
 import logging
+import os
 import types
+from pathlib import Path
 from typing import List, Dict, Optional, Iterator
 
 import ollama
@@ -62,12 +64,21 @@ def _tool_ui_labels(name: str, args: dict):
     return name, lambda r: "Done" if not _err(r) else f"Error: {_err(r)}"
 
 
+def _read_omlx_api_key() -> str:
+    import json
+    settings = Path.home() / ".omlx" / "settings.json"
+    try:
+        return json.loads(settings.read_text())["auth"]["api_key"]
+    except Exception:
+        return "none"
+
+
 def _make_oai_client(host: str) -> _openai.OpenAI:
     """Create an OpenAI-compatible client pointed at the given host."""
     base = host.rstrip("/")
     if not base.endswith("/v1"):
         base += "/v1"
-    return _openai.OpenAI(base_url=base, api_key="none")
+    return _openai.OpenAI(base_url=base, api_key=_read_omlx_api_key())
 
 
 class ChatOrchestrator:
