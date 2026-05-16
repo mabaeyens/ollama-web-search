@@ -27,6 +27,10 @@ Ready   : YES — Qwen3.6-35B-A3B available
 
 **Ready: YES** means the configured model (`Qwen3.6-35B-A3B`) is loaded and accepting requests. This is the same check Mira's `/health` endpoint uses for `backend_ready`.
 
+## API key
+
+oMLX requires authentication. The script reads the API key from `~/.omlx/settings.json` (`auth.api_key`) and includes it as `Authorization: Bearer <key>` on every request. No manual configuration needed.
+
 ## Internals
 
 - Detects the process with `pgrep -f "omlx-cli serve"` — works regardless of whether oMLX was started by this script, by Mira's `backend_manager.py`, or manually.
