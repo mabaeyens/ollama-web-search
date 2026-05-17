@@ -3,8 +3,8 @@
 ## Project
 
 **Mira** — local AI assistant with web search, file attachments (PDF/HTML/images), and RAG. CLI + web interface.
-- oMLX (default): Qwen3.6-35B-A3B, 262k ctx — inference at `http://localhost:8080`
-- Ollama (alt): Gemma4:26b, 64k ctx — inference at `http://localhost:11434`
+- Ollama (default): qwen3.6 (Qwen3.6-35B-A3B), 64k ctx — inference at `http://localhost:11434`
+- oMLX (alt): Qwen3.6-35B-A3B, 262k ctx — inference at `http://localhost:8080`
 - Mira web server always on **port 8000** (HTTP) / **8443** (HTTPS), regardless of backend
 
 ## Where to look

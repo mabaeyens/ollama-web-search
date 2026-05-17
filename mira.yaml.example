@@ -4,7 +4,7 @@
 
 # ── LLM backend ──────────────────────────────────────────────────────────────
 backend: omlx              # ollama | omlx
-model: Qwen3.6-35B-A3B    # model name as shown in the backend's /v1/models list
+model: Qwen3.6-35B-A3B    # oMLX name; Ollama equivalent: qwen3.6
 host: http://localhost:8080 # oMLX default; Ollama default is http://localhost:11434
 
 # ── Embedding backend (for RAG) ───────────────────────────────────────────────

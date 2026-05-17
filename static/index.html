@@ -355,6 +355,45 @@
       flex-shrink: 0;
     }
 
+    /* Thinking block — collapsible details with streamed content */
+    .thinking-block {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      border-bottom-left-radius: 4px;
+      overflow: hidden;
+      font-size: 13px;
+    }
+    .thinking-block summary {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      background: var(--surface);
+      color: var(--text-muted);
+      cursor: pointer;
+      list-style: none;
+      user-select: none;
+    }
+    .thinking-block summary::-webkit-details-marker { display: none; }
+    .thinking-block summary .t-spinner {
+      width: 12px; height: 12px;
+      border: 2px solid var(--border);
+      border-top-color: var(--text-muted);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex-shrink: 0;
+    }
+    .thinking-block summary .t-icon { flex-shrink: 0; opacity: 0.6; font-size: 10px; }
+    .thinking-block .thinking-content {
+      padding: 12px 16px;
+      color: var(--text-muted);
+      white-space: pre-wrap;
+      line-height: 1.5;
+      border-top: 1px solid var(--border);
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
     /* ── Search status chip ── */
     .search-status {
       display: inline-flex;
@@ -1492,6 +1531,20 @@
     return chip;
   }
 
+  function createThinkingBlock() {
+    welcomeEl.style.display = 'none';
+    const wrapper = document.createElement('div');
+    wrapper.className = 'message assistant';
+    const details = document.createElement('details');
+    details.className = 'thinking-block';
+    details.open = true;
+    details.innerHTML = '<summary><div class="t-spinner"></div><span>Thinking…</span></summary><div class="thinking-content"></div>';
+    wrapper.appendChild(details);
+    messagesEl.appendChild(wrapper);
+    scrollToBottom();
+    return details;
+  }
+
   // Auto-scroll unless the user has scrolled up to read earlier content.
   //
   // Design: use 'wheel' events (not 'scroll') to detect upward user intent.
@@ -1576,7 +1629,7 @@
     setStreaming(true, 'Thinking…');
 
     // Thinking indicator
-    let thinkingEl = addStatusChip('thinking', '<div class="t-spinner"></div> Thinking…');
+    let thinkingEl = createThinkingBlock();
 
     let assistantBubble = null;
     let rawContent = '';
@@ -1618,12 +1671,12 @@
     } catch (err) {
       if (!wasCancelled) {
         console.error('[SSE] stream error:', err);
-        removeThinking();
+        collapseThinking();
         addStatusChip('error-msg', `❌ ${escapeHtml(err.message)}`);
       }
     } finally {
       activeReader = null;
-      removeThinking();  // clean up if stream ended without a done/error event
+      collapseThinking();  // clean up if stream ended without a done/error event
       setStreaming(false);
     }
 
@@ -1632,12 +1685,17 @@
 
         case 'thinking':
           if (!thinkingEl) {
-            thinkingEl = addStatusChip('thinking', '<div class="t-spinner"></div> Thinking…');
+            thinkingEl = createThinkingBlock();
+          }
+          if (event.content) {
+            const contentDiv = thinkingEl.querySelector('.thinking-content');
+            contentDiv.textContent += event.content;
+            contentDiv.scrollTop = contentDiv.scrollHeight;
           }
           break;
 
         case 'token':
-          removeThinking();
+          collapseThinking();
           setStatus('Writing…');
           if (!assistantBubble) {
             assistantBubble = addMessage('assistant', '').parentElement.querySelector('.bubble');
@@ -1658,7 +1716,7 @@
           break;
 
         case 'search_start':
-          removeThinking();
+          collapseThinking();
           setStatus(`Searching: ${event.query}`);
           if (assistantBubble) {
             assistantBubble.innerHTML = renderMarkdown(rawContent);
@@ -1714,12 +1772,12 @@
               });
             }
           }
-          thinkingEl = addStatusChip('thinking', '<div class="t-spinner"></div> Thinking…');
+          thinkingEl = createThinkingBlock();
           break;
         }
 
         case 'tool_start': {
-          removeThinking();
+          collapseThinking();
           setStatus(event.label);
           if (assistantBubble) {
             assistantBubble.innerHTML = renderMarkdown(rawContent);
@@ -1740,12 +1798,12 @@
             currentSearchChip.innerHTML = `${ok ? '✅' : '⚠️'} ${escapeHtml(event.label)}`;
             currentSearchChip = null;
           }
-          thinkingEl = addStatusChip('thinking', '<div class="t-spinner"></div> Thinking…');
+          thinkingEl = createThinkingBlock();
           break;
         }
 
         case 'fetch_start': {
-          removeThinking();
+          collapseThinking();
           const shortUrl = (() => { try { return new URL(event.url).hostname; } catch { return event.url; } })();
           setStatus(`Reading: ${shortUrl}`);
           currentSearchChip = addStatusChip(
@@ -1763,12 +1821,12 @@
               `✅ Read ${(event.chars / 1000).toFixed(1)}k chars — <a href="${escapeHtml(event.url)}" target="_blank" rel="noopener noreferrer" style="color:inherit;font-weight:600">${escapeHtml(hostname)}</a>`;
             currentSearchChip = null;
           }
-          thinkingEl = addStatusChip('thinking', '<div class="t-spinner"></div> Thinking…');
+          thinkingEl = createThinkingBlock();
           break;
         }
 
         case 'rag_indexing':
-          removeThinking();
+          collapseThinking();
           setStatus(`Indexing: ${event.name}`);
           currentSearchChip = addStatusChip(
             'search-status',
@@ -1784,7 +1842,7 @@
           }
           ragDocuments.set(event.name, event.chunks);
           renderRagDocs();
-          thinkingEl = addStatusChip('thinking', '<div class="t-spinner"></div> Thinking…');
+          thinkingEl = createThinkingBlock();
           break;
 
         case 'fetch_context':
@@ -1827,7 +1885,7 @@
           break;
 
         case 'done': {
-          removeThinking();
+          collapseThinking();
           let doneWrapper = null;
           if (assistantBubble) {
             doneWrapper = assistantBubble.closest('.message');
@@ -1851,7 +1909,7 @@
         }
 
         case 'error':
-          removeThinking();
+          collapseThinking();
           if (assistantBubble) {
             assistantBubble.innerHTML = renderMarkdown(rawContent);
             assistantBubble = null;
@@ -1861,11 +1919,22 @@
       }
     }
 
-    function removeThinking() {
-      if (thinkingEl) {
+    function collapseThinking() {
+      if (!thinkingEl) return;
+      const content = thinkingEl.querySelector('.thinking-content')?.textContent || '';
+      if (!content.trim()) {
         thinkingEl.closest('.message')?.remove();
-        thinkingEl = null;
+      } else {
+        const summary = thinkingEl.querySelector('summary');
+        const spinner = summary.querySelector('.t-spinner');
+        if (spinner) spinner.replaceWith(Object.assign(document.createElement('span'), {
+          className: 't-icon', textContent: '▸'
+        }));
+        const label = summary.querySelector('span');
+        if (label) label.textContent = 'Thinking';
+        thinkingEl.open = false;
       }
+      thinkingEl = null;
     }
   }
 

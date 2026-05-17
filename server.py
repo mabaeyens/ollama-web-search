@@ -215,7 +215,7 @@ async def chat(
     conversation_id: str = Form(default=""),
     files: List[UploadFile] = File(default=[]),
     paths: List[str] = Form(default=[]),
-    thinking_enabled: bool = Form(default=True),
+    thinking_enabled: bool = Form(default=False),
     _: None = Depends(_ready),
 ):
     """SSE endpoint — streams typed events from stream_chat() to the browser."""
