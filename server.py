@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import ollama
 import uvicorn
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse
@@ -22,8 +23,6 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
 logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
-
-import ollama
 
 import core.db as db
 import core.file_handler as file_handler
@@ -78,36 +77,29 @@ async def lifespan(app: FastAPI):
             _orch_lock = asyncio.Lock()
             db.init_db()
             
-            # Validate model for Ollama backend before creating orchestrator
-            actual_model = MODEL_NAME
+            # Verify configured model is installed; warn clearly if not.
+            # Uses list() (all installed models), not ps() (only loaded-in-memory models).
             if BACKEND == "ollama":
                 try:
                     client = ollama.Client(host=OLLAMA_HOST)
-                    running_models = {m.name for m in client.ps().models}
-                    model_found = False
-                    for name in running_models:
-                        if MODEL_NAME == name or name.startswith(MODEL_NAME + ":"):
-                            model_found = True
-                            break
+                    installed = {m.model for m in client.list().models}
+                    model_found = any(
+                        MODEL_NAME == name or name.startswith(MODEL_NAME + ":")
+                        for name in installed
+                    )
                     if not model_found:
-                        logger.warning(f"Model '{MODEL_NAME}' not found in Ollama. Available models: {sorted(running_models)}")
-                        logger.warning(f"Falling back to gemma4:26b. To use '{MODEL_NAME}', run: ollama pull {MODEL_NAME}")
-                        fallback_model = "gemma4:26b"
-                        if fallback_model in running_models or any(name.startswith(fallback_model + ":") for name in running_models):
-                            actual_model = fallback_model
-                            logger.info(f"Using fallback model: {fallback_model}")
-                        else:
-                            logger.error(f"Fallback model '{fallback_model}' also not found. Please run: ollama pull gemma4:26b")
-                            logger.error(f"Available models: {sorted(running_models)}")
+                        logger.warning(
+                            f"Model '{MODEL_NAME}' is not installed. "
+                            f"Run: ollama pull {MODEL_NAME}  "
+                            f"(installed: {sorted(installed)})"
+                        )
+                    else:
+                        logger.info(f"Model '{MODEL_NAME}' confirmed installed — warming up")
+                        client.generate(model=MODEL_NAME, prompt="", keep_alive="24h")
+                        logger.info(f"Model '{MODEL_NAME}' loaded and ready")
                 except Exception as e:
                     logger.warning(f"Could not check Ollama models: {e}")
-                    # Continue with original model, will fail later if invalid
-            
-            # Override config with validated model
-            if actual_model != MODEL_NAME:
-                from core.config import _cfg
-                _cfg["model"] = actual_model
-            
+
             orchestrator = ChatOrchestrator(verbose=VERBOSE_DEFAULT)
             convs = db.list_conversations()
             if convs:
