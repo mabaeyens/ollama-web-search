@@ -54,7 +54,7 @@ static/index.html    — single-page web UI (vanilla HTML/CSS/JS + marked.js)
 | `compress` | `message` | Context window compressed — emitted after `done` when `context_pct` exceeded threshold |
 | `heartbeat` | — | Keepalive — emitted periodically during long tool calls to prevent connection timeout |
 
-**Thinking toggle:** `stream_chat()` accepts `thinking_enabled: bool = True`. For oMLX this passes `enable_thinking` in `extra_body`; for Ollama it passes `think=thinking_enabled` to the client. Both backends support thinking mode — Gemma4:26b yields thinking text in `chunk.message.thinking`; Qwen3.6 yields `<think>…</think>` tags in `chunk.message.content`. The server form field `thinking_enabled` (default `true`) flows through from the app's thinking toggle button in the input bar.
+**Thinking toggle:** `stream_chat()` accepts `thinking_enabled: bool = True`. For oMLX this passes `enable_thinking` in `extra_body`; for Ollama it passes `think=thinking_enabled` to the client AND injects `/no_think` into the system prompt when off (Qwen3 model-level control, belt-and-suspenders). Both backends support thinking mode — Gemma4:26b yields thinking text in `chunk.message.thinking`; Qwen3.6 yields `<think>…</think>` tags in `chunk.message.content`. The server form field `thinking_enabled` (default `true`) flows through from the app's thinking toggle button in the input bar.
 
 **Mockable boundary:** `_call_llm()` is the single point tests mock — returns an iterable of stream chunks with `.message.content`, `.message.tool_calls`, `.done`.
 
@@ -158,13 +158,13 @@ On Mira startup, `backend_manager.ensure_backend_running()` starts oMLX (or Olla
 
 | Field | Default | Notes |
 |-------|---------|-------|
-| `backend` | `omlx` | `omlx` or `ollama` |
-| `model` | `Qwen3.6-35B-A3B` | Model name as shown in the backend |
-| `host` | `http://localhost:8000` | LLM server URL |
-| `embed_backend` | same as `backend` | `omlx` or `ollama` |
+| `backend` | `ollama` | `ollama` or `omlx` |
+| `model` | `gemma4:26b` | Model name as shown in the backend (`Qwen3.6-35B-A3B` for oMLX) |
+| `host` | `http://localhost:11434` | LLM server URL (`http://localhost:8080` for oMLX) |
+| `embed_backend` | same as `backend` | `ollama` or `omlx` |
 | `embed_model` | `nomic-embed-text` | Embedding model |
 | `embed_host` | same as `host` | Embedding server URL |
-| `context_window` | `262144` | Token context (65536 for Gemma4:26b) |
+| `context_window` | `65536` | Token context (262144 for Qwen3.6-35B-A3B on oMLX) |
 
 **RAG / search knobs in `core/config.py`** (no `mira.yaml` equivalent — edit directly):
 `USE_NATIVE_SEARCH`, `MAX_SEARCH_RESULTS`, `SEARCH_TIMEOUT`, `MAX_RETRIES`, `MAX_TOOL_STEPS`, `VERBOSE_DEFAULT`, `RERANK_MODEL`, `RAG_CHUNK_SIZE`, `RAG_CHUNK_OVERLAP`, `RAG_RETRIEVE_K`, `RAG_RERANK_TOP_K`, `RAG_SCORE_THRESHOLD`, `RAG_MAX_CHUNKS`

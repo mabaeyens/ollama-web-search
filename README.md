@@ -6,8 +6,8 @@ Supports two local inference backends:
 
 | Backend | Model | Context | Host |
 |---------|-------|---------|------|
-| **oMLX** (default) | Qwen3.6-35B-A3B | 262k tokens | `http://localhost:8080` |
-| **Ollama** | Gemma 4:26b | 64k tokens | `http://localhost:11434` |
+| **Ollama** (default) | gemma4:26b | 64k tokens | `http://localhost:11434` |
+| **oMLX** | Qwen3.6-35B-A3B | 262k tokens | `http://localhost:8080` |
 
 ## Features
 
@@ -20,22 +20,22 @@ Supports two local inference backends:
 
 ## Prerequisites
 
-### oMLX (default)
+### Ollama (default)
+
+- **Python 3.12+** and **uv**
+- **Ollama** v0.24.0+ installed and running
+- **gemma4:26b**: `ollama pull gemma4:26b`
+- **nomic-embed-text** (RAG embeddings): `ollama pull nomic-embed-text`
+
+### oMLX (alternative)
 
 - **Python 3.12+** and **uv**
 - **oMLX** installed at `/Applications/oMLX.app`
 - API key in `~/.omlx/settings.json` under `auth.api_key`
 
-Mira starts oMLX automatically on launch — no manual server command needed.
+Set `backend: omlx` in `mira.yaml` to use oMLX (see [Configuration](#configuration)).
 
-### Ollama (alternative)
-
-- **Python 3.12+** and **uv**
-- **Ollama** v0.20.2+ installed and running
-- **Gemma 4:26b**: `ollama pull gemma4:26b`
-- **nomic-embed-text** (RAG embeddings): `ollama pull nomic-embed-text`
-
-Set `backend: ollama` in `mira.yaml` to use Ollama (see [Configuration](#configuration)).
+Mira starts the configured backend automatically on launch — no manual server command needed.
 
 ## Setup
 
@@ -65,14 +65,16 @@ Mira starts the configured inference backend automatically. If oMLX or Ollama is
 
 ### Ollama env vars
 
-When using Ollama, these env vars are loaded from `~/.zprofile` for every Terminal session:
+Add to `~/.zprofile` for optimal performance on Apple Silicon:
 
 | Variable | Value | Effect |
 |----------|-------|--------|
-| `OLLAMA_CONTEXT_LENGTH` | `65536` | 64k token context window |
-| `OLLAMA_FLASH_ATTENTION` | `1` | Flash attention enabled |
+| `OLLAMA_CONTEXT_LENGTH` | `65536` | 64k token context window; must match `context_window` in `mira.yaml` |
+| `OLLAMA_FLASH_ATTENTION` | `1` | Reduces KV cache memory ~40% |
+| `OLLAMA_NUM_PARALLEL` | `1` | Prevents doubling the KV cache (single-user app) |
+| `OLLAMA_KV_CACHE_TYPE` | `q8_0` | Halves KV cache memory vs f16 default |
 
-Metal/GPU acceleration is on by default on macOS — no extra flag needed.
+Metal/GPU acceleration is on by default on macOS — no extra flag needed. See `docs/model-comparison-m5-macbook.md` for benchmarks and model alternatives.
 
 ## macOS LaunchAgent (optional)
 
@@ -139,22 +141,22 @@ RAG documents persist in the session index across turns — no need to re-attach
 Copy `mira.yaml.example` to `mira.yaml` and edit. All fields are optional — omit any to keep the built-in default.
 
 ```yaml
-backend: omlx              # ollama | omlx
-model: Qwen3.6-35B-A3B
-host: http://localhost:8080
+backend: ollama            # ollama | omlx
+model: gemma4:26b
+host: http://localhost:11434
 
-embed_backend: omlx        # ollama | omlx
+embed_backend: ollama
 embed_model: nomic-embed-text
-embed_host: http://localhost:8080
+embed_host: http://localhost:11434
 
-context_window: 262144
+context_window: 65536
 ```
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `backend` | `ollama` | Inference backend: `ollama` or `omlx` |
-| `model` | `gemma4:26b` | Model name as shown in the backend's model list |
-| `host` | `http://localhost:11434` | Backend host URL (`omlx` default: `http://localhost:8080`) |
+| `model` | `gemma4:26b` | Model name as shown in the backend (`Qwen3.6-35B-A3B` for oMLX) |
+| `host` | `http://localhost:11434` | Backend host URL (`http://localhost:8080` for oMLX) |
 | `embed_backend` | same as `backend` | Embedding backend for RAG |
 | `embed_model` | `nomic-embed-text` | Embedding model |
 | `embed_host` | same as `host` | Embedding host URL |
