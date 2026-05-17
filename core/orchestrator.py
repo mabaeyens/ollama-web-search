@@ -320,7 +320,8 @@ class ChatOrchestrator:
         fetch_results = []
 
         for step in range(MAX_TOOL_STEPS):
-            yield {"type": "thinking"}
+            if thinking_enabled:
+                yield {"type": "thinking"}
 
             full_content = ""
             final_message = None
@@ -564,8 +565,13 @@ class ChatOrchestrator:
     ):
         """Call the configured LLM backend with streaming. Mockable in tests."""
         if self.backend == "ollama":
+            msgs = _normalize_messages_for_ollama(messages)
+            if not thinking_enabled:
+                # Belt-and-suspenders: Qwen3 respects /no_think in the system prompt
+                # independently of the `think` API parameter (Ollama version-agnostic).
+                msgs = _inject_no_think(msgs)
             return self._ollama.chat(
-                model=self.model, messages=_normalize_messages_for_ollama(messages),
+                model=self.model, messages=msgs,
                 tools=tools, stream=True, think=thinking_enabled,
             )
         else:
@@ -687,6 +693,17 @@ class ChatOrchestrator:
 
 
 # ── Module-level helpers ─────────────────────────────────────────────────────
+
+def _inject_no_think(messages: List[Dict]) -> List[Dict]:
+    """Prepend /no_think to the system message so Qwen3 skips chain-of-thought
+    regardless of Ollama version. Safe to call on any message list."""
+    result = list(messages)
+    if result and result[0].get("role") == "system":
+        content = result[0].get("content", "")
+        if not content.startswith("/no_think"):
+            result[0] = {**result[0], "content": "/no_think\n" + content}
+    return result
+
 
 def _strip_think(text: str) -> str:
     """Remove <think>...</think> blocks from a string."""
