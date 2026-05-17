@@ -23,6 +23,8 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
 logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
 
+import ollama
+
 import core.db as db
 import core.file_handler as file_handler
 from core.config import VERBOSE_DEFAULT, COMPRESS_THRESHOLD, MODEL_NAME, BACKEND, OLLAMA_HOST, CONTEXT_WINDOW
@@ -75,6 +77,37 @@ async def lifespan(app: FastAPI):
             _initialized = True
             _orch_lock = asyncio.Lock()
             db.init_db()
+            
+            # Validate model for Ollama backend before creating orchestrator
+            actual_model = MODEL_NAME
+            if BACKEND == "ollama":
+                try:
+                    client = ollama.Client(host=OLLAMA_HOST)
+                    running_models = {m.name for m in client.ps().models}
+                    model_found = False
+                    for name in running_models:
+                        if MODEL_NAME == name or name.startswith(MODEL_NAME + ":"):
+                            model_found = True
+                            break
+                    if not model_found:
+                        logger.warning(f"Model '{MODEL_NAME}' not found in Ollama. Available models: {sorted(running_models)}")
+                        logger.warning(f"Falling back to gemma4:26b. To use '{MODEL_NAME}', run: ollama pull {MODEL_NAME}")
+                        fallback_model = "gemma4:26b"
+                        if fallback_model in running_models or any(name.startswith(fallback_model + ":") for name in running_models):
+                            actual_model = fallback_model
+                            logger.info(f"Using fallback model: {fallback_model}")
+                        else:
+                            logger.error(f"Fallback model '{fallback_model}' also not found. Please run: ollama pull gemma4:26b")
+                            logger.error(f"Available models: {sorted(running_models)}")
+                except Exception as e:
+                    logger.warning(f"Could not check Ollama models: {e}")
+                    # Continue with original model, will fail later if invalid
+            
+            # Override config with validated model
+            if actual_model != MODEL_NAME:
+                from core.config import _cfg
+                _cfg["model"] = actual_model
+            
             orchestrator = ChatOrchestrator(verbose=VERBOSE_DEFAULT)
             convs = db.list_conversations()
             if convs:
@@ -84,24 +117,7 @@ async def lifespan(app: FastAPI):
                 conv_id = db.create_conversation(orchestrator.model)
                 orchestrator.new_conversation(conv_id)
             logger.info(f"Initialized orchestrator — backend: {BACKEND}, model: {orchestrator.model}, conv: {orchestrator.conv_id}")
-            if BACKEND == "ollama":
-                for _attempt in range(1, 6):
-                    try:
-                        running = {m.model for m in orchestrator._ollama.ps().models}
-                        if MODEL_NAME in running:
-                            logger.info(f"Model {MODEL_NAME} already loaded in Ollama — reusing")
-                        else:
-                            logger.info(f"Model {MODEL_NAME} not loaded — warming up (attempt {_attempt}/5)...")
-                            orchestrator._ollama.generate(model=MODEL_NAME, prompt="", keep_alive="24h")
-                            logger.info(f"Model {MODEL_NAME} ready")
-                        break
-                    except Exception as e:
-                        if _attempt < 5:
-                            logger.warning(f"Ollama not ready (attempt {_attempt}/5): {e} — retrying in 5s")
-                            await asyncio.sleep(5)
-                        else:
-                            logger.warning(f"Could not pre-warm model {MODEL_NAME} after 5 attempts: {e}")
-            else:
+            if BACKEND != "ollama":
                 logger.info(f"oMLX backend — model {MODEL_NAME} managed by oMLX server at {OLLAMA_HOST}")
             _ollama_ready = True
             # Auto-start the inference backend in a background thread so the app is

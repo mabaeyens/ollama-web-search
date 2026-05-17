@@ -3,16 +3,29 @@
 # All fields are optional; omit any to keep the built-in default.
 
 # ── LLM backend ──────────────────────────────────────────────────────────────
-backend: omlx              # ollama | omlx
-model: Qwen3.6-35B-A3B    # oMLX name; Ollama equivalent: qwen3.6
-host: http://localhost:8080 # oMLX default; Ollama default is http://localhost:11434
+# For MacBook Pro M5 with 32GB RAM:
+#   - Use Ollama backend (oMLX requires >32GB RAM for MLX backend)
+#   - gemma4:26b is ~11-23x faster than qwen3.6:latest on M5 hardware
+#   - qwen3.6:35b-a3b is available but much slower on this hardware
+backend: ollama              # ollama | omlx
+model: gemma4:26b          # Default for Ollama; oMLX model: Qwen3.6-35B-A3B
+                                # For Qwen3 on Ollama, use: qwen3.6:35b-a3b or qwen3.6:27b
+host: http://localhost:11434 # Ollama default port
 
 # ── Embedding backend (for RAG) ───────────────────────────────────────────────
-embed_backend: omlx        # ollama | omlx
+embed_backend: ollama        # ollama | omlx (must match backend for compatibility)
 embed_model: nomic-embed-text
-embed_host: http://localhost:8080
+embed_host: http://localhost:11434
 
 # ── Context window ────────────────────────────────────────────────────────────
-# Qwen3.6-35B-A3B supports 262144 natively.
-# Gemma4:26b works well at 65536.
-context_window: 262144
+# gemma4:26b: 65536 tokens (64K) - optimal for M5 with 32GB RAM
+# Qwen3.6-35B-A3B: 262144 tokens (256K) - requires >32GB RAM for best performance
+context_window: 65536
+
+# ── Performance Tips ─────────────────────────────────────────────────────────
+# For best performance with Ollama on MacBook Pro M5, add to ~/.zprofile:
+#   export OLLAMA_CONTEXT_LENGTH=65536
+#   export OLLAMA_FLASH_ATTENTION=1
+#   export OLLAMA_NUM_PARALLEL=1
+#   export OLLAMA_KV_CACHE_TYPE=q8_0
+# Then restart Ollama.
