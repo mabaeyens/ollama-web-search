@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import subprocess
 import time
 import urllib.request
@@ -17,7 +18,7 @@ OMLX_CONTEXT = 262144
 
 OLLAMA_HOST = "http://localhost:11434"
 OLLAMA_MODEL = "gemma4:26b"
-OLLAMA_CONTEXT = 65536
+OLLAMA_CONTEXT = int(os.environ.get("OLLAMA_CONTEXT_LENGTH", 262144))
 
 PRESETS = {
     "omlx": {

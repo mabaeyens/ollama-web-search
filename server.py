@@ -42,6 +42,22 @@ _active_cancels: Dict[str, threading.Event] = {}
 _initialized = False
 _ollama_ready = False
 
+def _detect_hardware() -> str:
+    try:
+        import subprocess as _sp, json as _json
+        out = _sp.run(
+            ["system_profiler", "SPHardwareDataType", "-json"],
+            capture_output=True, text=True, timeout=5
+        ).stdout
+        hw = _json.loads(out)["SPHardwareDataType"][0]
+        chip = hw.get("chip_type", hw.get("cpu_type", "Apple Silicon"))
+        mem  = hw.get("physical_memory", "")
+        return f"{chip} · {mem}" if mem else chip
+    except Exception:
+        return "Apple Silicon"
+
+_HARDWARE = _detect_hardware()
+
 # Runtime state — updated on every backend switch
 _rt: Dict = {
     "backend": BACKEND,
@@ -140,7 +156,7 @@ async def health():
 @app.get("/info")
 async def info():
     """Return server/model metadata for display in the client app."""
-    hardware = "Apple Silicon (MLX)" if _rt["backend"] == "omlx" else "Ollama"
+    hardware = _HARDWARE
     result = {
         "model": _rt["model"],
         "backend": _rt["backend"],
